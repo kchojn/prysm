@@ -107,6 +107,7 @@ type config struct {
 // This defines the interface for interacting with block chain service
 type blockchainService interface {
 	blockchain.BlockReceiver
+	blockchain.PayloadAttestationReceiver
 	blockchain.BlobReceiver
 	blockchain.HeadFetcher
 	blockchain.FinalizationFetcher
