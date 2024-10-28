@@ -29,6 +29,8 @@ const (
 	mainnetDenebForkEpoch = 269568 // March 13, 2024, 13:55:35 UTC
 	// Electra Fork Epoch for mainnet config
 	mainnetElectraForkEpoch = math.MaxUint64 // Far future / to be defined
+	// ePBS Fork Epoch for mainnet config.
+	mainnetEPBSForkEpoch = math.MaxUint64
 )
 
 var mainnetNetworkConfig = &NetworkConfig{
@@ -217,6 +219,8 @@ var mainnetBeaconConfig = &BeaconChainConfig{
 	ElectraForkVersion:   []byte{5, 0, 0, 0},
 	ElectraForkEpoch:     mainnetElectraForkEpoch,
 	Eip7594ForkEpoch:     math.MaxUint64,
+	EPBSForkVersion:      []byte{6, 0, 0, 0},
+	EPBSForkEpoch:        mainnetEPBSForkEpoch,
 
 	// New values introduced in Altair hard fork 1.
 	// Participation flag indices.
@@ -340,6 +344,7 @@ func FillTestVersions(c *BeaconChainConfig, b byte) {
 	c.CapellaForkVersion = make([]byte, fieldparams.VersionLength)
 	c.DenebForkVersion = make([]byte, fieldparams.VersionLength)
 	c.ElectraForkVersion = make([]byte, fieldparams.VersionLength)
+	c.EPBSForkVersion = make([]byte, fieldparams.VersionLength)
 
 	c.GenesisForkVersion[fieldparams.VersionLength-1] = b
 	c.AltairForkVersion[fieldparams.VersionLength-1] = b
@@ -347,6 +352,7 @@ func FillTestVersions(c *BeaconChainConfig, b byte) {
 	c.CapellaForkVersion[fieldparams.VersionLength-1] = b
 	c.DenebForkVersion[fieldparams.VersionLength-1] = b
 	c.ElectraForkVersion[fieldparams.VersionLength-1] = b
+	c.EPBSForkVersion[fieldparams.VersionLength-1] = b
 
 	c.GenesisForkVersion[0] = 0
 	c.AltairForkVersion[0] = 1
@@ -354,4 +360,5 @@ func FillTestVersions(c *BeaconChainConfig, b byte) {
 	c.CapellaForkVersion[0] = 3
 	c.DenebForkVersion[0] = 4
 	c.ElectraForkVersion[0] = 5
+	c.EPBSForkVersion[0] = 6
 }
