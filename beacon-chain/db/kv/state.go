@@ -711,7 +711,7 @@ func marshalState(ctx context.Context, st state.ReadOnlyBeaconState) ([]byte, er
 			return nil, err
 		}
 		return snappy.Encode(nil, append(electraKey, rawObj...)), nil
-	case *ethpb.BeaconStateEPBS:
+	case version.EPBS:
 		rState, ok := st.ToProtoUnsafe().(*ethpb.BeaconStateEPBS)
 		if !ok {
 			return nil, errors.New("non valid inner state")
