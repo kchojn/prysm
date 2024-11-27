@@ -319,6 +319,8 @@ var mainnetBeaconConfig = &BeaconChainConfig{
 	AttestationSubnetPrefixBits:     6,
 	SubnetsPerNode:                  2,
 	NodeIdBits:                      256,
+
+	MaxBlobsPerBlock: 6,
 }
 
 // MainnetTestConfig provides a version of the mainnet config that has a different name

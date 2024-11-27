@@ -2205,23 +2205,23 @@ func TestMissingIndices(t *testing.T) {
 		},
 		{
 			name:     "expected exceeds max",
-			expected: fakeCommitments(fieldparams.MaxBlobsPerBlock + 1),
+			expected: fakeCommitments(params.BeaconConfig().MaxBlobsPerBlock + 1),
 			err:      errMaxBlobsExceeded,
 		},
 		{
 			name:     "first missing",
-			expected: fakeCommitments(fieldparams.MaxBlobsPerBlock),
+			expected: fakeCommitments(params.BeaconConfig().MaxBlobsPerBlock),
 			present:  []uint64{1, 2, 3, 4, 5},
 			result:   fakeResult([]uint64{0}),
 		},
 		{
 			name:     "all missing",
-			expected: fakeCommitments(fieldparams.MaxBlobsPerBlock),
+			expected: fakeCommitments(params.BeaconConfig().MaxBlobsPerBlock),
 			result:   fakeResult([]uint64{0, 1, 2, 3, 4, 5}),
 		},
 		{
 			name:     "none missing",
-			expected: fakeCommitments(fieldparams.MaxBlobsPerBlock),
+			expected: fakeCommitments(params.BeaconConfig().MaxBlobsPerBlock),
 			present:  []uint64{0, 1, 2, 3, 4, 5},
 			result:   fakeResult([]uint64{}),
 		},
@@ -2255,7 +2255,7 @@ func TestMissingIndices(t *testing.T) {
 		bm, bs := filesystem.NewEphemeralBlobStorageWithMocker(t)
 		t.Run(c.name, func(t *testing.T) {
 			require.NoError(t, bm.CreateFakeIndices(c.root, c.present...))
-			missing, err := missingIndices(bs, c.root, c.expected)
+			missing, err := missingIndices(bs, c.root, c.expected, 0)
 			if c.err != nil {
 				require.ErrorIs(t, err, c.err)
 				return

@@ -9,6 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/pkg/errors"
 	fieldparams "github.com/prysmaticlabs/prysm/v5/config/fieldparams"
+	"github.com/prysmaticlabs/prysm/v5/config/params"
 	consensusblocks "github.com/prysmaticlabs/prysm/v5/consensus-types/blocks"
 	"github.com/prysmaticlabs/prysm/v5/consensus-types/interfaces"
 	types "github.com/prysmaticlabs/prysm/v5/consensus-types/primitives"
@@ -996,8 +997,8 @@ type ExecHeaderResponseDeneb struct {
 }
 
 // ToProto creates a SignedBuilderBidDeneb Proto from ExecHeaderResponseDeneb.
-func (ehr *ExecHeaderResponseDeneb) ToProto() (*eth.SignedBuilderBidDeneb, error) {
-	bb, err := ehr.Data.Message.ToProto()
+func (ehr *ExecHeaderResponseDeneb) ToProto(s types.Slot) (*eth.SignedBuilderBidDeneb, error) {
+	bb, err := ehr.Data.Message.ToProto(s)
 	if err != nil {
 		return nil, err
 	}
@@ -1008,12 +1009,13 @@ func (ehr *ExecHeaderResponseDeneb) ToProto() (*eth.SignedBuilderBidDeneb, error
 }
 
 // ToProto creates a BuilderBidDeneb Proto from BuilderBidDeneb.
-func (bb *BuilderBidDeneb) ToProto() (*eth.BuilderBidDeneb, error) {
+func (bb *BuilderBidDeneb) ToProto(s types.Slot) (*eth.BuilderBidDeneb, error) {
 	header, err := bb.Header.ToProto()
 	if err != nil {
 		return nil, err
 	}
-	if len(bb.BlobKzgCommitments) > fieldparams.MaxBlobsPerBlock {
+	maxBlobsPerBlock := params.BeaconConfig().MaxBlobCount(s)
+	if len(bb.BlobKzgCommitments) > maxBlobsPerBlock {
 		return nil, fmt.Errorf("too many blob commitments: %d", len(bb.BlobKzgCommitments))
 	}
 	kzgCommitments := make([][]byte, len(bb.BlobKzgCommitments))

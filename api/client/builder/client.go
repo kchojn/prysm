@@ -225,7 +225,7 @@ func (c *Client) GetHeader(ctx context.Context, slot primitives.Slot, parentHash
 		if err := json.Unmarshal(hb, hr); err != nil {
 			return nil, errors.Wrapf(err, "error unmarshaling the builder GetHeader response, using slot=%d, parentHash=%#x, pubkey=%#x", slot, parentHash, pubkey)
 		}
-		p, err := hr.ToProto()
+		p, err := hr.ToProto(slot)
 		if err != nil {
 			return nil, errors.Wrapf(err, "could not extract proto message from header")
 		}

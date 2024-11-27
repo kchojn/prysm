@@ -105,3 +105,17 @@ func TestConfigGenesisValidatorRoot(t *testing.T) {
 		t.Fatal("mainnet params genesis validator root does not match the mainnet genesis state value")
 	}
 }
+
+func Test_MaxBlobCount(t *testing.T) {
+	cfg := params.BeaconConfig()
+	cfg.ElectraForkEpoch = 10
+	require.Equal(t, cfg.MaxBlobCount(primitives.Slot(cfg.ElectraForkEpoch)*cfg.SlotsPerEpoch-1), cfg.MaxBlobsPerBlock)
+	require.Equal(t, cfg.MaxBlobCount(primitives.Slot(cfg.ElectraForkEpoch)*cfg.SlotsPerEpoch), cfg.MaxBlobsPerBlockElectra)
+}
+
+func Test_TargetBlobCount(t *testing.T) {
+	cfg := params.BeaconConfig()
+	cfg.ElectraForkEpoch = 10
+	require.Equal(t, cfg.TargetBlobCount(primitives.Slot(cfg.ElectraForkEpoch)*cfg.SlotsPerEpoch-1), cfg.MaxBlobsPerBlock/2)
+	require.Equal(t, cfg.TargetBlobCount(primitives.Slot(cfg.ElectraForkEpoch)*cfg.SlotsPerEpoch), cfg.TargetBlobsPerBlockElectra)
+}

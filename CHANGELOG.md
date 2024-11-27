@@ -33,6 +33,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Added a Prometheus error counter metric for SSE requests.
 - Save light client updates and bootstraps in DB.
 - Added more comprehensive tests for `BlockToLightClientHeader`. [PR](https://github.com/prysmaticlabs/prysm/pull/14699)
+- Added support to update target and max blob count to different values per hard fork config.
 
 ### Changed
 
