@@ -76,6 +76,8 @@ func (s *Service) registerSubscribers(epoch primitives.Epoch, digest [4]byte) {
 			s.validateCommitteeIndexBeaconAttestation,
 			s.committeeIndexBeaconAttestationSubscriber,
 			digest,
+			params.BeaconConfig().MaxCommitteesPerSlot,
+			s.subscribeToAttestationsSubnetsDynamic,
 		)
 	}
 
@@ -98,11 +100,13 @@ func (s *Service) registerSubscribers(epoch primitives.Epoch, digest [4]byte) {
 				params.BeaconConfig().SyncCommitteeSubnetCount,
 			)
 		} else {
-			s.subscribeDynamicWithSyncSubnets(
+			s.subscribeDynamicWithSubnets(
 				p2p.SyncCommitteeSubnetTopicFormat,
-				s.validateSyncCommitteeMessage,   /* validator */
-				s.syncCommitteeMessageSubscriber, /* message handler */
+				s.validateSyncCommitteeMessage,
+				s.syncCommitteeMessageSubscriber,
 				digest,
+				params.BeaconConfig().SyncCommitteeSubnetCount,
+				s.subscribeToSyncSubnetsDynamic,
 			)
 		}
 	}
@@ -333,12 +337,6 @@ func (s *Service) subscribeStaticWithSubnets(
 		panic(fmt.Sprintf("%s is not mapped to any message in GossipTopicMappings", topic))
 	}
 
-	// Subscribe to all subnets.
-	for i := range subnetCount {
-		fullTopic := s.addDigestAndIndexToTopic(topic, digest, i)
-		s.subscribeWithBase(fullTopic, validator, handle)
-	}
-
 	// Define a ticker ticking every slot.
 	genesisTime := s.cfg.clock.GenesisTime()
 	secondsPerSlot := params.BeaconConfig().SecondsPerSlot
@@ -346,13 +344,15 @@ func (s *Service) subscribeStaticWithSubnets(
 
 	minimumPeersPerSubnet := flags.Get().MinimumPeersPerSubnet
 
+	// Subscribe to all subnets.
+	for i := range subnetCount {
+		fullTopic := s.addDigestAndIndexToTopic(topic, digest, i)
+		s.subscribeWithBase(fullTopic, validator, handle)
+	}
+
 	go func() {
 		for {
 			select {
-			case <-s.ctx.Done():
-				ticker.Done()
-				return
-
 			case <-ticker.C():
 				if s.chainStarted.IsSet() && s.cfg.initialSync.Syncing() {
 					continue
@@ -389,70 +389,204 @@ func (s *Service) subscribeStaticWithSubnets(
 						}
 					}
 				}
+			case <-s.ctx.Done():
+				ticker.Done()
+				return
 			}
 		}
 	}()
 }
 
-// subscribe to a dynamically changing list of subnets. This method expects a fmt compatible
-// string for the topic name and the list of subnets for subscribed topics that should be
-// maintained.
+type specificSubscribeFunc func(
+	topic string,
+	digest [4]byte,
+	genesisValidatorsRoot [fieldparams.RootLength]byte,
+	genesisTime time.Time,
+	subscriptions map[uint64]*pubsub.Subscription,
+	currentSlot primitives.Slot,
+	validate wrappedVal,
+	handle subHandler,
+) bool
+
+// subscribeDynamicWithSubnets subscribes to a dynamically changing list of subnets.
 func (s *Service) subscribeDynamicWithSubnets(
 	topicFormat string,
 	validate wrappedVal,
 	handle subHandler,
 	digest [4]byte,
+	subnetCount uint64,
+	specificSubscribe specificSubscribeFunc,
 ) {
-	genRoot := s.cfg.clock.GenesisValidatorsRoot()
-	_, e, err := forks.RetrieveForkDataFromDigest(digest, genRoot[:])
+	// Initialize the subscriptions map.
+	subscriptions := make(map[uint64]*pubsub.Subscription, subnetCount)
+
+	// Retrieve the genesis validators root.
+	genesisValidatorsRoot := s.cfg.clock.GenesisValidatorsRoot()
+
+	// Retrieve the epoch of the fork corresponding to the digest.
+	_, epoch, err := forks.RetrieveForkDataFromDigest(digest, genesisValidatorsRoot[:])
 	if err != nil {
-		// Impossible condition as it would mean digest does not exist.
 		panic(err)
 	}
-	base := p2p.GossipTopicMappings(topicFormat, e)
+
+	// Retrieve the base protobuf message.
+	base := p2p.GossipTopicMappings(topicFormat, epoch)
 	if base == nil {
 		panic(fmt.Sprintf("%s is not mapped to any message in GossipTopicMappings", topicFormat))
 	}
-	subscriptions := make(map[uint64]*pubsub.Subscription, params.BeaconConfig().MaxCommitteesPerSlot)
-	genesis := s.cfg.clock.GenesisTime()
-	ticker := slots.NewSlotTicker(genesis, params.BeaconConfig().SecondsPerSlot)
+
+	// Retrieve the genesis time.
+	genesisTime := s.cfg.clock.GenesisTime()
+
+	// Define a ticker ticking every slot.
+	secondsPerSlot := params.BeaconConfig().SecondsPerSlot
+	ticker := slots.NewSlotTicker(genesisTime, secondsPerSlot)
+
+	// Retrieve the current slot.
+	currentSlot := s.cfg.clock.CurrentSlot()
 
 	go func() {
+		// Subscribe to the sync subnets.
+		specificSubscribe(topicFormat, digest, genesisValidatorsRoot, genesisTime, subscriptions, currentSlot, validate, handle)
+
 		for {
 			select {
-			case <-s.ctx.Done():
-				ticker.Done()
-				return
 			case currentSlot := <-ticker.C():
-				if s.chainStarted.IsSet() && s.cfg.initialSync.Syncing() {
-					continue
-				}
-				valid, err := isDigestValid(digest, genesis, genRoot)
-				if err != nil {
-					log.Error(err)
-					continue
-				}
-				if !valid {
-					log.Warnf("Attestation subnets with digest %#x are no longer valid, unsubscribing from all of them.", digest)
-					// Unsubscribes from all our current subnets.
-					s.reValidateSubscriptions(subscriptions, []uint64{}, topicFormat, digest)
+				isDigestValid := specificSubscribe(topicFormat, digest, genesisValidatorsRoot, genesisTime, subscriptions, currentSlot, validate, handle)
+
+				// Stop the ticker if the digest is not valid. Likely to happen after a hard fork.
+				if !isDigestValid {
 					ticker.Done()
 					return
 				}
-				wantedSubs := s.retrievePersistentSubs(currentSlot)
-				s.reValidateSubscriptions(subscriptions, wantedSubs, topicFormat, digest)
 
-				for _, idx := range wantedSubs {
-					s.subscribeAggregatorSubnet(subscriptions, idx, digest, validate, handle)
-				}
-				// find desired subs for attesters
-				attesterSubs := s.attesterSubnetIndices(currentSlot)
-				for _, idx := range attesterSubs {
-					s.lookupAttesterSubnets(digest, idx)
-				}
+			case <-s.ctx.Done():
+				ticker.Done()
+				return
 			}
 		}
 	}()
+}
+
+func (s *Service) subscribeToAttestationsSubnetsDynamic(
+	topicFormat string,
+	digest [4]byte,
+	genesisValidatorsRoot [fieldparams.RootLength]byte,
+	genesisTime time.Time,
+	subscriptions map[uint64]*pubsub.Subscription,
+	currentSlot primitives.Slot,
+	validate wrappedVal,
+	handle subHandler,
+) bool {
+	// Do not subscribe if not synced.
+	if s.chainStarted.IsSet() && s.cfg.initialSync.Syncing() {
+		return true
+	}
+
+	// Do not subscribe is the digest is not valid.
+	valid, err := isDigestValid(digest, genesisTime, genesisValidatorsRoot)
+	if err != nil {
+		log.Error(err)
+		return true
+	}
+
+	// Unsubscribe from all subnets if the digest is not valid. It's likely to be the case after a hard fork.
+	if !valid {
+		const message = "Attestation subnets with this digest are no longer valid, unsubscribing from all of them."
+		log.WithField("digest", fmt.Sprintf("%#x", digest)).Warn(message)
+		s.reValidateSubscriptions(subscriptions, []uint64{}, topicFormat, digest)
+		return false
+	}
+
+	wantedSubnetsIndex := s.retrievePersistentSubs(currentSlot)
+	s.reValidateSubscriptions(subscriptions, wantedSubnetsIndex, topicFormat, digest)
+
+	for _, index := range wantedSubnetsIndex {
+		s.subscribeAggregatorSubnet(subscriptions, index, digest, validate, handle)
+	}
+
+	// Find desired subnets for attesters.
+	attesterSubnets := s.attesterSubnetIndices(currentSlot)
+	for _, index := range attesterSubnets {
+		s.lookupAttesterSubnets(digest, index)
+	}
+
+	return true
+}
+
+func (s *Service) subscribeToSyncSubnetsDynamic(
+	topicFormat string,
+	digest [4]byte,
+	genesisValidatorsRoot [fieldparams.RootLength]byte,
+	genesisTime time.Time,
+	subscriptions map[uint64]*pubsub.Subscription,
+	currentSlot primitives.Slot,
+	validate wrappedVal,
+	handle subHandler,
+) bool {
+	// Get sync subnets topic.
+	topic := p2p.GossipTypeMapping[reflect.TypeOf(&ethpb.SyncCommitteeMessage{})]
+
+	// Do not subscribe if not synced.
+	if s.chainStarted.IsSet() && s.cfg.initialSync.Syncing() {
+		return true
+	}
+
+	// Do not subscribe is the digest is not valid.
+	valid, err := isDigestValid(digest, genesisTime, genesisValidatorsRoot)
+	if err != nil {
+		log.Error(err)
+		return true
+	}
+
+	// Unsubscribe from all subnets if the digest is not valid. It's likely to be the case after a hard fork.
+	if !valid {
+		const message = "Sync subnets with this digest are no longer valid, unsubscribing from all of them."
+		log.WithField("digest", fmt.Sprintf("%#x", digest)).Warn(message)
+		s.reValidateSubscriptions(subscriptions, []uint64{}, topicFormat, digest)
+		return false
+	}
+
+	// Get the current epoch.
+	currentEpoch := slots.ToEpoch(currentSlot)
+
+	// Retrieve the subnets we want to subscribe to.
+	wantedSubnetsIndex := s.retrieveActiveSyncSubnets(currentEpoch)
+
+	// Remove subscriptions that are no longer wanted.
+	s.reValidateSubscriptions(subscriptions, wantedSubnetsIndex, topicFormat, digest)
+
+	// Subscribe to wanted subnets.
+	for _, subnetIndex := range wantedSubnetsIndex {
+		subnetTopic := fmt.Sprintf(topic, digest, subnetIndex)
+
+		// Check if subscription exists.
+		if _, exists := subscriptions[subnetIndex]; exists {
+			continue
+		}
+
+		// We need to subscribe to the subnet.
+		subscription := s.subscribeWithBase(subnetTopic, validate, handle)
+		subscriptions[subnetIndex] = subscription
+	}
+
+	// Find new peers for wanted subnets if needed.
+	for _, subnetIndex := range wantedSubnetsIndex {
+		subnetTopic := fmt.Sprintf(topic, digest, subnetIndex)
+
+		// Check if we have enough peers in the subnet. Skip if we do.
+		if s.enoughPeersAreConnected(subnetTopic) {
+			continue
+		}
+
+		// Not enough peers in the subnet, we need to search for more.
+		_, err := s.cfg.p2p.FindPeersWithSubnet(s.ctx, subnetTopic, subnetIndex, flags.Get().MinimumPeersPerSubnet)
+		if err != nil {
+			log.WithError(err).Debug("Could not search for peers")
+		}
+	}
+
+	return true
 }
 
 // reValidateSubscriptions unsubscribe from topics we are currently subscribed to but that are
@@ -504,143 +638,6 @@ func (s *Service) subscribeAggregatorSubnet(
 			log.WithError(err).Debug("Could not search for peers")
 		}
 	}
-}
-
-// subscribeToSyncSubnets subscribes to needed sync subnets, unsubscribe from unneeded ones and search for more peers if needed.
-// Returns `true` if the digest is valid (wrt. the current epoch), `false` otherwise.
-func (s *Service) subscribeToSyncSubnets(
-	topicFormat string,
-	digest [4]byte,
-	genesisValidatorsRoot [fieldparams.RootLength]byte,
-	genesisTime time.Time,
-	subscriptions map[uint64]*pubsub.Subscription,
-	currentSlot primitives.Slot,
-	validate wrappedVal,
-	handle subHandler,
-) bool {
-	// Get sync subnets topic.
-	topic := p2p.GossipTypeMapping[reflect.TypeOf(&ethpb.SyncCommitteeMessage{})]
-
-	// Do not subscribe if not synced.
-	if s.chainStarted.IsSet() && s.cfg.initialSync.Syncing() {
-		return true
-	}
-
-	// Do not subscribe is the digest is not valid.
-	valid, err := isDigestValid(digest, genesisTime, genesisValidatorsRoot)
-	if err != nil {
-		log.Error(err)
-		return true
-	}
-
-	// Unsubscribe from all subnets if the digest is not valid. It's likely to be the case after a hard fork.
-	if !valid {
-		log.WithField("digest", fmt.Sprintf("%#x", digest)).Warn("Sync subnets with this digest are no longer valid, unsubscribing from all of them.")
-		s.reValidateSubscriptions(subscriptions, []uint64{}, topicFormat, digest)
-		return false
-	}
-
-	// Get the current epoch.
-	currentEpoch := slots.ToEpoch(currentSlot)
-
-	// Retrieve the subnets we want to subscribe to.
-	wantedSubnetsIndex := s.retrieveActiveSyncSubnets(currentEpoch)
-
-	// Remove subscriptions that are no longer wanted.
-	s.reValidateSubscriptions(subscriptions, wantedSubnetsIndex, topicFormat, digest)
-
-	// Subscribe to wanted subnets.
-	for _, subnetIndex := range wantedSubnetsIndex {
-		subnetTopic := fmt.Sprintf(topic, digest, subnetIndex)
-
-		// Check if subscription exists.
-		if _, exists := subscriptions[subnetIndex]; exists {
-			continue
-		}
-
-		// We need to subscribe to the subnet.
-		subscription := s.subscribeWithBase(subnetTopic, validate, handle)
-		subscriptions[subnetIndex] = subscription
-	}
-
-	// Find new peers for wanted subnets if needed.
-	for _, subnetIndex := range wantedSubnetsIndex {
-		subnetTopic := fmt.Sprintf(topic, digest, subnetIndex)
-
-		// Check if we have enough peers in the subnet. Skip if we do.
-		if s.enoughPeersAreConnected(subnetTopic) {
-			continue
-		}
-
-		// Not enough peers in the subnet, we need to search for more.
-		_, err := s.cfg.p2p.FindPeersWithSubnet(s.ctx, subnetTopic, subnetIndex, flags.Get().MinimumPeersPerSubnet)
-		if err != nil {
-			log.WithError(err).Debug("Could not search for peers")
-		}
-	}
-
-	return true
-}
-
-// subscribeDynamicWithSyncSubnets subscribes to a dynamically changing list of subnets.
-func (s *Service) subscribeDynamicWithSyncSubnets(
-	topicFormat string,
-	validate wrappedVal,
-	handle subHandler,
-	digest [4]byte,
-) {
-	// Retrieve the number of committee subnets we need to subscribe to.
-	syncCommiteeSubnetsCount := params.BeaconConfig().SyncCommitteeSubnetCount
-
-	// Initialize the subscriptions map.
-	subscriptions := make(map[uint64]*pubsub.Subscription, syncCommiteeSubnetsCount)
-
-	// Retrieve the genesis validators root.
-	genesisValidatorsRoot := s.cfg.clock.GenesisValidatorsRoot()
-
-	// Retrieve the epoch of the fork corresponding to the digest.
-	_, epoch, err := forks.RetrieveForkDataFromDigest(digest, genesisValidatorsRoot[:])
-	if err != nil {
-		panic(err)
-	}
-
-	// Retrieve the base protobuf message.
-	base := p2p.GossipTopicMappings(topicFormat, epoch)
-	if base == nil {
-		panic(fmt.Sprintf("%s is not mapped to any message in GossipTopicMappings", topicFormat))
-	}
-
-	// Retrieve the genesis time.
-	genesisTime := s.cfg.clock.GenesisTime()
-
-	// Define a ticker ticking every slot.
-	secondsPerSlot := params.BeaconConfig().SecondsPerSlot
-	ticker := slots.NewSlotTicker(genesisTime, secondsPerSlot)
-
-	// Retrieve the current slot.
-	currentSlot := s.cfg.clock.CurrentSlot()
-
-	go func() {
-		// Subscribe to the sync subnets.
-		s.subscribeToSyncSubnets(topicFormat, digest, genesisValidatorsRoot, genesisTime, subscriptions, currentSlot, validate, handle)
-
-		for {
-			select {
-			case currentSlot := <-ticker.C():
-				isDigestValid := s.subscribeToSyncSubnets(topicFormat, digest, genesisValidatorsRoot, genesisTime, subscriptions, currentSlot, validate, handle)
-
-				// Stop the ticker if the digest is not valid. Likely to happen after a hard fork.
-				if !isDigestValid {
-					ticker.Done()
-					return
-				}
-
-			case <-s.ctx.Done():
-				ticker.Done()
-				return
-			}
-		}
-	}()
 }
 
 // lookup peers for attester specific subnets.
