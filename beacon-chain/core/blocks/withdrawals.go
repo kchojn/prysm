@@ -160,7 +160,7 @@ func processWithdrawalStateTransition(
 		}
 	}
 	if st.Version() >= version.Electra {
-		if err := st.DequeuePartialWithdrawals(partialWithdrawalsCount); err != nil {
+		if err := st.DequeuePendingPartialWithdrawals(partialWithdrawalsCount); err != nil {
 			return fmt.Errorf("unable to dequeue partial withdrawals from state: %w", err)
 		}
 	}
@@ -258,27 +258,6 @@ func ProcessWithdrawals(st state.BeaconState, executionData interfaces.Execution
 		if err != nil {
 			return nil, errors.Wrap(err, "could not set withdrawals root")
 		}
-	}
-
-	if st.Version() >= version.Electra {
-		if err := st.DequeuePendingPartialWithdrawals(partialWithdrawalsCount); err != nil {
-			return nil, fmt.Errorf("unable to dequeue partial withdrawals from state: %w", err)
-		}
-	}
-
-	if len(expectedWithdrawals) > 0 {
-		if err := st.SetNextWithdrawalIndex(expectedWithdrawals[len(expectedWithdrawals)-1].Index + 1); err != nil {
-			return nil, errors.Wrap(err, "could not set next withdrawal index")
-		}
-	}
-	var nextValidatorIndex primitives.ValidatorIndex
-	if uint64(len(expectedWithdrawals)) < params.BeaconConfig().MaxWithdrawalsPerPayload {
-		nextValidatorIndex, err = st.NextWithdrawalValidatorIndex()
-		if err != nil {
-			return nil, errors.Wrap(err, "could not get next withdrawal validator index")
-		}
-		nextValidatorIndex += primitives.ValidatorIndex(params.BeaconConfig().MaxValidatorsPerWithdrawalsSweep)
-		nextValidatorIndex = nextValidatorIndex % primitives.ValidatorIndex(st.NumValidators())
 	} else {
 		if err := checkWithdrawalsAgainstPayload(executionData, len(expectedWithdrawals), expectedRoot); err != nil {
 			return nil, err
