@@ -123,7 +123,13 @@ type EngineCaller interface {
 var ErrEmptyBlockHash = errors.New("Block hash is empty 0x0000...")
 
 // NewPayload request calls the engine_newPayloadVX method via JSON-RPC.
-func (s *Service) NewPayload(ctx context.Context, payload interfaces.ExecutionData, versionedHashes []common.Hash, parentBlockRoot *common.Hash, executionRequests *pb.ExecutionRequests) ([]byte, error) {
+func (s *Service) NewPayload(
+	ctx context.Context,
+	payload interfaces.ExecutionData,
+	versionedHashes []common.Hash,
+	parentBlockRoot *common.Hash,
+	executionRequests *pb.ExecutionRequests,
+	ilTxs [][]byte) ([]byte, error) {
 	ctx, span := trace.StartSpan(ctx, "powchain.engine-api-client.NewPayload")
 	defer span.End()
 	start := time.Now()
@@ -165,7 +171,7 @@ func (s *Service) NewPayload(ctx context.Context, payload interfaces.ExecutionDa
 			if err != nil {
 				return nil, handleRPCError(err)
 			}
-		} else {
+		} else if ilTxs == nil {
 			flattenedRequests, err := pb.EncodeExecutionRequests(executionRequests)
 			if err != nil {
 				return nil, errors.Wrap(err, "failed to encode execution requests")
@@ -174,6 +180,16 @@ func (s *Service) NewPayload(ctx context.Context, payload interfaces.ExecutionDa
 			if err != nil {
 				return nil, handleRPCError(err)
 			}
+		} else {
+			flattenedRequests, err := pb.EncodeExecutionRequests(executionRequests)
+			if err != nil {
+				return nil, errors.Wrap(err, "failed to encode execution requests")
+			}
+			err = s.rpcClient.CallContext(ctx, result, NewPayloadMethodV4, payloadPb, versionedHashes, parentBlockRoot, flattenedRequests, ilTxs)
+			if err != nil {
+				return nil, handleRPCError(err)
+			}
+			// TODO: handle IL not satisfied error
 		}
 	default:
 		return nil, errors.New("unknown execution data type")
