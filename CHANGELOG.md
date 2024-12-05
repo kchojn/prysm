@@ -82,6 +82,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Revert "Proposer checks gas limit before accepting builder's bid".
 - Updated quic-go to v0.48.2 .
 - Process light client finality updates only for new finalized epochs instead of doing it for every block.
+- Refactor subnets subscriptions.
 
 ### Deprecated
 
