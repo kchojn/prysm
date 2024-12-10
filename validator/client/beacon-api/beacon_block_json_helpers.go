@@ -51,14 +51,6 @@ func jsonifyAttestations(attestations []*ethpb.Attestation) []*structs.Attestati
 	return jsonAttestations
 }
 
-func jsonifyAttestationsElectra(attestations []*ethpb.AttestationElectra) []*structs.AttestationElectra {
-	jsonAttestations := make([]*structs.AttestationElectra, len(attestations))
-	for index, attestation := range attestations {
-		jsonAttestations[index] = jsonifyAttestationElectra(attestation)
-	}
-	return jsonAttestations
-}
-
 func jsonifySingleAttestations(attestations []*ethpb.SingleAttestation) []*structs.SingleAttestation {
 	jsonAttestations := make([]*structs.SingleAttestation, len(attestations))
 	for index, attestation := range attestations {
