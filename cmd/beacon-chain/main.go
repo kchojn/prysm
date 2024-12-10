@@ -63,8 +63,6 @@ var appFlags = []cli.Flag{
 	flags.DataColumnBatchLimit,
 	flags.DataColumnBatchLimitBurstFactor,
 	flags.InteropMockEth1DataVotesFlag,
-	flags.InteropNumValidatorsFlag,
-	flags.InteropGenesisTimeFlag,
 	flags.SlotsPerArchivedPoint,
 	flags.DisableDebugRPCEndpoints,
 	flags.SubscribeToAllSubnets,

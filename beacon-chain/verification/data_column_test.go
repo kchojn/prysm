@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/prysmaticlabs/prysm/v5/beacon-chain/blockchain/kzg"
+	"github.com/prysmaticlabs/prysm/v5/beacon-chain/core/peerdas"
 	forkchoicetypes "github.com/prysmaticlabs/prysm/v5/beacon-chain/forkchoice/types"
 	"github.com/prysmaticlabs/prysm/v5/beacon-chain/startup"
 	"github.com/prysmaticlabs/prysm/v5/beacon-chain/state"
@@ -19,6 +21,26 @@ import (
 	"github.com/prysmaticlabs/prysm/v5/testing/util"
 	"github.com/prysmaticlabs/prysm/v5/time/slots"
 )
+
+func GenerateTestDataColumns(t *testing.T, parent [fieldparams.RootLength]byte, slot primitives.Slot, blobCount int) []blocks.RODataColumn {
+	roBlock, roBlobs := util.GenerateTestDenebBlockWithSidecar(t, parent, slot, blobCount)
+	blobs := make([]kzg.Blob, 0, len(roBlobs))
+	for i := range roBlobs {
+		blobs = append(blobs, kzg.Blob(roBlobs[i].Blob))
+	}
+
+	dataColumnSidecars, err := peerdas.DataColumnSidecars(roBlock, blobs)
+	require.NoError(t, err)
+
+	roDataColumns := make([]blocks.RODataColumn, 0, len(dataColumnSidecars))
+	for i := range dataColumnSidecars {
+		roDataColumn, err := blocks.NewRODataColumn(dataColumnSidecars[i])
+		require.NoError(t, err)
+		roDataColumns = append(roDataColumns, roDataColumn)
+	}
+
+	return roDataColumns
+}
 
 func TestDataColumnsIndexInBounds(t *testing.T) {
 	testCases := []struct {
@@ -48,7 +70,7 @@ func TestDataColumnsIndexInBounds(t *testing.T) {
 			parentRoot := [32]byte{}
 			initializer := Initializer{}
 
-			_, columns := util.GenerateTestDenebBlockWithColumns(t, parentRoot, columnSlot, blobCount)
+			columns := GenerateTestDataColumns(t, parentRoot, columnSlot, blobCount)
 			for _, column := range columns {
 				column.ColumnIndex = tc.columnsIndex
 			}
@@ -128,7 +150,7 @@ func TestNotFromFutureSlot(t *testing.T) {
 			parentRoot := [fieldparams.RootLength]byte{}
 			initializer := Initializer{shared: &sharedResources{clock: clock}}
 
-			_, columns := util.GenerateTestDenebBlockWithColumns(t, parentRoot, tc.columnSlot, blobCount)
+			columns := GenerateTestDataColumns(t, parentRoot, tc.columnSlot, blobCount)
 			verifier := initializer.NewDataColumnsVerifier(columns, GossipColumnSidecarRequirements)
 
 			err := verifier.NotFromFutureSlot()
@@ -193,7 +215,7 @@ func TestColumnSlotAboveFinalized(t *testing.T) {
 				fc: &mockForkchoicer{FinalizedCheckpointCB: finalizedCheckpoint},
 			}}
 
-			_, columns := util.GenerateTestDenebBlockWithColumns(t, parentRoot, tc.columnSlot, blobCount)
+			columns := GenerateTestDataColumns(t, parentRoot, tc.columnSlot, blobCount)
 
 			v := initializer.NewDataColumnsVerifier(columns, GossipColumnSidecarRequirements)
 
@@ -221,7 +243,7 @@ func TestValidProposerSignature(t *testing.T) {
 	parentRoot := [fieldparams.RootLength]byte{}
 	validator := &ethpb.Validator{}
 
-	_, columns := util.GenerateTestDenebBlockWithColumns(t, parentRoot, columnSlot, blobCount)
+	columns := GenerateTestDataColumns(t, parentRoot, columnSlot, blobCount)
 	firstColumn := columns[0]
 
 	// The signature data does not depend on the data column itself, so we can use the first one.
@@ -337,7 +359,7 @@ func TestDataColumnsSidecarParentSeen(t *testing.T) {
 
 	parentRoot := [fieldparams.RootLength]byte{}
 
-	_, columns := util.GenerateTestDenebBlockWithColumns(t, parentRoot, columnSlot, blobCount)
+	columns := GenerateTestDataColumns(t, parentRoot, columnSlot, blobCount)
 	firstColumn := columns[0]
 
 	fcHas := &mockForkchoicer{
@@ -438,7 +460,7 @@ func TestDataColumnsSidecarParentValid(t *testing.T) {
 
 			parentRoot := [fieldparams.RootLength]byte{}
 
-			_, columns := util.GenerateTestDenebBlockWithColumns(t, parentRoot, columnSlot, blobCount)
+			columns := GenerateTestDataColumns(t, parentRoot, columnSlot, blobCount)
 			firstColumn := columns[0]
 
 			initializer := Initializer{shared: &sharedResources{}}
@@ -459,7 +481,7 @@ func TestDataColumnsSidecarParentValid(t *testing.T) {
 }
 
 func TestColumnSidecarParentSlotLower(t *testing.T) {
-	_, columns := util.GenerateTestDenebBlockWithColumns(t, [32]byte{}, 1, 1)
+	columns := GenerateTestDataColumns(t, [32]byte{}, 1, 1)
 	firstColumn := columns[0]
 
 	cases := []struct {
@@ -545,7 +567,7 @@ func TestDataColumnsSidecarDescendsFromFinalized(t *testing.T) {
 
 			parentRoot := [fieldparams.RootLength]byte{}
 
-			_, columns := util.GenerateTestDenebBlockWithColumns(t, parentRoot, columnSlot, blobCount)
+			columns := GenerateTestDataColumns(t, parentRoot, columnSlot, blobCount)
 			firstColumn := columns[0]
 
 			initializer := Initializer{
@@ -604,7 +626,7 @@ func TestDataColumnsSidecarInclusionProven(t *testing.T) {
 			)
 
 			parentRoot := [fieldparams.RootLength]byte{}
-			_, columns := util.GenerateTestDenebBlockWithColumns(t, parentRoot, columnSlot, blobCount)
+			columns := GenerateTestDataColumns(t, parentRoot, columnSlot, blobCount)
 			if tc.alterate {
 				firstColumn := columns[0]
 				byte0 := firstColumn.SignedBlockHeader.Header.BodyRoot[0]
@@ -663,7 +685,7 @@ func TestDataColumnsSidecarKzgProofVerified(t *testing.T) {
 			)
 
 			parentRoot := [fieldparams.RootLength]byte{}
-			_, columns := util.GenerateTestDenebBlockWithColumns(t, parentRoot, columnSlot, blobCount)
+			columns := GenerateTestDataColumns(t, parentRoot, columnSlot, blobCount)
 			firstColumn := columns[0]
 
 			verifyDataColumnsCommitment := func(roDataColumns []blocks.RODataColumn) (bool, error) {
@@ -702,10 +724,10 @@ func TestDataColumnsSidecarProposerExpected(t *testing.T) {
 	)
 
 	parentRoot := [fieldparams.RootLength]byte{}
-	_, columns := util.GenerateTestDenebBlockWithColumns(t, parentRoot, columnSlot, blobCount)
+	columns := GenerateTestDataColumns(t, parentRoot, columnSlot, blobCount)
 	firstColumn := columns[0]
 
-	_, newColumns := util.GenerateTestDenebBlockWithColumns(t, parentRoot, 2*params.BeaconConfig().SlotsPerEpoch, blobCount)
+	newColumns := GenerateTestDataColumns(t, parentRoot, 2*params.BeaconConfig().SlotsPerEpoch, blobCount)
 	firstNewColumn := newColumns[0]
 
 	validator := &ethpb.Validator{}
@@ -851,7 +873,7 @@ func TestColumnRequirementSatisfaction(t *testing.T) {
 
 	parentRoot := [fieldparams.RootLength]byte{}
 
-	_, columns := util.GenerateTestDenebBlockWithColumns(t, parentRoot, columnSlot, blobCount)
+	columns := GenerateTestDataColumns(t, parentRoot, columnSlot, blobCount)
 	initializer := Initializer{}
 	verifier := initializer.NewDataColumnsVerifier(columns, GossipColumnSidecarRequirements)
 
@@ -887,7 +909,7 @@ func TestColumnSatisfyRequirement(t *testing.T) {
 
 	parentRoot := [fieldparams.RootLength]byte{}
 
-	_, columns := util.GenerateTestDenebBlockWithColumns(t, parentRoot, columnSlot, blobCount)
+	columns := GenerateTestDataColumns(t, parentRoot, columnSlot, blobCount)
 	intializer := Initializer{}
 
 	v := intializer.NewDataColumnsVerifier(columns, GossipColumnSidecarRequirements)

@@ -200,13 +200,6 @@ func TestListenForNewNodes(t *testing.T) {
 	require.NoError(t, err)
 	defer bootListener.Close()
 
-	// Use shorter batch size for testing.
-	currentBatchSize := batchSize
-	batchSize = 5
-	defer func() {
-		batchSize = currentBatchSize
-	}()
-
 	bootNode := bootListener.Self()
 
 	var listeners []*listenerWrapper

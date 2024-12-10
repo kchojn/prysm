@@ -278,7 +278,6 @@ func (node *BeaconNode) Start(ctx context.Context) error {
 		"--" + cmdshared.ValidatorMonitorIndicesFlag.Name + "=2",
 		"--" + cmdshared.ForceClearDB.Name,
 		"--" + cmdshared.AcceptTosFlag.Name,
-		"--" + features.EnableQUIC.Name,
 		"--" + flags.SubscribeToAllSubnets.Name,
 		fmt.Sprintf("--%s=%d", features.DataColumnsWithholdCount.Name, 3),
 	}
