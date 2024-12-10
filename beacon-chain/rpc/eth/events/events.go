@@ -12,6 +12,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prysmaticlabs/prysm/v5/api"
 	"github.com/prysmaticlabs/prysm/v5/api/server/structs"
 	"github.com/prysmaticlabs/prysm/v5/beacon-chain/core/feed"
@@ -20,13 +22,13 @@ import (
 	"github.com/prysmaticlabs/prysm/v5/beacon-chain/core/helpers"
 	chaintime "github.com/prysmaticlabs/prysm/v5/beacon-chain/core/time"
 	"github.com/prysmaticlabs/prysm/v5/config/params"
+	"github.com/prysmaticlabs/prysm/v5/consensus-types/interfaces"
 	payloadattribute "github.com/prysmaticlabs/prysm/v5/consensus-types/payload-attribute"
 	"github.com/prysmaticlabs/prysm/v5/consensus-types/primitives"
 	"github.com/prysmaticlabs/prysm/v5/monitoring/tracing/trace"
 	"github.com/prysmaticlabs/prysm/v5/network/httputil"
 	engine "github.com/prysmaticlabs/prysm/v5/proto/engine/v1"
 	ethpb "github.com/prysmaticlabs/prysm/v5/proto/eth/v1"
-	ethpbv2 "github.com/prysmaticlabs/prysm/v5/proto/eth/v2"
 	eth "github.com/prysmaticlabs/prysm/v5/proto/prysm/v1alpha1"
 	"github.com/prysmaticlabs/prysm/v5/runtime/version"
 	"github.com/prysmaticlabs/prysm/v5/time/slots"
@@ -74,6 +76,14 @@ var (
 	errNotRequested       = errors.New("event not requested by client")
 	errUnhandledEventData = errors.New("unable to represent event data in the event stream")
 	errWriterUnusable     = errors.New("http response writer is unusable")
+)
+
+var httpSSEErrorCount = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "http_sse_error_count",
+		Help: "Total HTTP errors for server sent events endpoint",
+	},
+	[]string{"endpoint", "error"},
 )
 
 // The eventStreamer uses lazyReaders to defer serialization until the moment the value is ready to be written to the client.
@@ -145,6 +155,13 @@ func newTopicRequest(topics []string) (*topicRequest, error) {
 // Servers may send SSE comments beginning with ':' for any purpose,
 // including to keep the event stream connection alive in the presence of proxy servers.
 func (s *Server) StreamEvents(w http.ResponseWriter, r *http.Request) {
+	var err error
+	defer func() {
+		if err != nil {
+			httpSSEErrorCount.WithLabelValues(r.URL.Path, err.Error()).Inc()
+		}
+	}()
+
 	log.Debug("Starting StreamEvents handler")
 	ctx, span := trace.StartSpan(r.Context(), "events.StreamEvents")
 	defer span.End()
@@ -174,7 +191,7 @@ func (s *Server) StreamEvents(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	es := newEventStreamer(buffSize, ka)
 
-	go es.outboxWriteLoop(ctx, cancel, sw)
+	go es.outboxWriteLoop(ctx, cancel, sw, r.URL.Path)
 	if err := es.recvEventLoop(ctx, cancel, topics, s); err != nil {
 		log.WithError(err).Debug("Shutting down StreamEvents handler.")
 	}
@@ -264,11 +281,12 @@ func newlineReader() io.Reader {
 
 // outboxWriteLoop runs in a separate goroutine. Its job is to write the values in the outbox to
 // the client as fast as the client can read them.
-func (es *eventStreamer) outboxWriteLoop(ctx context.Context, cancel context.CancelFunc, w *streamingResponseWriterController) {
+func (es *eventStreamer) outboxWriteLoop(ctx context.Context, cancel context.CancelFunc, w *streamingResponseWriterController, endpoint string) {
 	var err error
 	defer func() {
 		if err != nil {
 			log.WithError(err).Debug("Event streamer shutting down due to error.")
+			httpSSEErrorCount.WithLabelValues(endpoint, err.Error()).Inc()
 		}
 		es.exit()
 	}()
@@ -413,9 +431,9 @@ func topicForEvent(event *feed.Event) string {
 		return HeadTopic
 	case *ethpb.EventFinalizedCheckpoint:
 		return FinalizedCheckpointTopic
-	case *ethpbv2.LightClientFinalityUpdateWithVersion:
+	case interfaces.LightClientFinalityUpdate:
 		return LightClientFinalityUpdateTopic
-	case *ethpbv2.LightClientOptimisticUpdateWithVersion:
+	case interfaces.LightClientOptimisticUpdate:
 		return LightClientOptimisticUpdateTopic
 	case *ethpb.EventChainReorg:
 		return ChainReorgTopic
@@ -509,25 +527,25 @@ func (s *Server) lazyReaderForEvent(ctx context.Context, event *feed.Event, topi
 		return func() io.Reader {
 			return jsonMarshalReader(eventName, structs.FinalizedCheckpointEventFromV1(v))
 		}, nil
-	case *ethpbv2.LightClientFinalityUpdateWithVersion:
-		cv, err := structs.LightClientFinalityUpdateFromConsensus(v.Data)
+	case interfaces.LightClientFinalityUpdate:
+		cv, err := structs.LightClientFinalityUpdateFromConsensus(v)
 		if err != nil {
-			return nil, errors.Wrap(err, "LightClientFinalityUpdateWithVersion event conversion failure")
+			return nil, errors.Wrap(err, "LightClientFinalityUpdate conversion failure")
 		}
 		ev := &structs.LightClientFinalityUpdateEvent{
-			Version: version.String(int(v.Version)),
+			Version: version.String(v.Version()),
 			Data:    cv,
 		}
 		return func() io.Reader {
 			return jsonMarshalReader(eventName, ev)
 		}, nil
-	case *ethpbv2.LightClientOptimisticUpdateWithVersion:
-		cv, err := structs.LightClientOptimisticUpdateFromConsensus(v.Data)
+	case interfaces.LightClientOptimisticUpdate:
+		cv, err := structs.LightClientOptimisticUpdateFromConsensus(v)
 		if err != nil {
-			return nil, errors.Wrap(err, "LightClientOptimisticUpdateWithVersion event conversion failure")
+			return nil, errors.Wrap(err, "LightClientOptimisticUpdate conversion failure")
 		}
 		ev := &structs.LightClientOptimisticUpdateEvent{
-			Version: version.String(int(v.Version)),
+			Version: version.String(v.Version()),
 			Data:    cv,
 		}
 		return func() io.Reader {

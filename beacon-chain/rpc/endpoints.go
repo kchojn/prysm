@@ -62,6 +62,13 @@ func (e *endpoint) handlerWithMiddleware() http.HandlerFunc {
 	)
 
 	return func(w http.ResponseWriter, r *http.Request) {
+		// SSE errors are handled separately to avoid interference with the streaming
+		// mechanism and ensure accurate error tracking.
+		if e.template == "/eth/v1/events" {
+			handler.ServeHTTP(w, r)
+			return
+		}
+
 		rw := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
 		handler.ServeHTTP(rw, r)
 
@@ -911,10 +918,11 @@ func (*Service) configEndpoints() []endpoint {
 
 func (s *Service) lightClientEndpoints(blocker lookup.Blocker, stater lookup.Stater) []endpoint {
 	server := &lightclient.Server{
-		Blocker:     blocker,
-		Stater:      stater,
-		HeadFetcher: s.cfg.HeadFetcher,
-		BeaconDB:    s.cfg.BeaconDB,
+		Blocker:          blocker,
+		Stater:           stater,
+		HeadFetcher:      s.cfg.HeadFetcher,
+		ChainInfoFetcher: s.cfg.ChainInfoFetcher,
+		BeaconDB:         s.cfg.BeaconDB,
 	}
 
 	const namespace = "lightclient"
