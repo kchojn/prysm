@@ -13,8 +13,6 @@ import (
 	"github.com/prysmaticlabs/prysm/v5/testing/require"
 )
 
-// TODO: comment code and see if tests fail
-
 func TestAdd(t *testing.T) {
 	k, err := blst.RandKey()
 	require.NoError(t, err)
@@ -23,10 +21,11 @@ func TestAdd(t *testing.T) {
 	t.Run("new ID", func(t *testing.T) {
 		t.Run("first ID ever", func(t *testing.T) {
 			c := NewAttestationCache()
-
+			ab := bitfield.NewBitlist(8)
+			ab.SetBitAt(0, true)
 			att := &ethpb.Attestation{
 				Data:            &ethpb.AttestationData{Slot: 123, BeaconBlockRoot: make([]byte, 32), Source: &ethpb.Checkpoint{Root: make([]byte, 32)}, Target: &ethpb.Checkpoint{Root: make([]byte, 32)}},
-				AggregationBits: bitfield.NewBitlist(8),
+				AggregationBits: ab,
 				Signature:       sig.Marshal(),
 			}
 			id, err := attestation.NewId(att, attestation.Data)
@@ -42,9 +41,11 @@ func TestAdd(t *testing.T) {
 		})
 		t.Run("other ID exists", func(t *testing.T) {
 			c := NewAttestationCache()
+			ab := bitfield.NewBitlist(8)
+			ab.SetBitAt(0, true)
 			existingAtt := &ethpb.Attestation{
 				Data:            &ethpb.AttestationData{BeaconBlockRoot: make([]byte, 32), Source: &ethpb.Checkpoint{Root: make([]byte, 32)}, Target: &ethpb.Checkpoint{Root: make([]byte, 32)}},
-				AggregationBits: bitfield.NewBitlist(8),
+				AggregationBits: ab,
 				Signature:       sig.Marshal(),
 			}
 			existingId, err := attestation.NewId(existingAtt, attestation.Data)
@@ -53,7 +54,7 @@ func TestAdd(t *testing.T) {
 
 			att := &ethpb.Attestation{
 				Data:            &ethpb.AttestationData{Slot: 123, BeaconBlockRoot: make([]byte, 32), Source: &ethpb.Checkpoint{Root: make([]byte, 32)}, Target: &ethpb.Checkpoint{Root: make([]byte, 32)}},
-				AggregationBits: bitfield.NewBitlist(8),
+				AggregationBits: ab,
 				Signature:       sig.Marshal(),
 			}
 			id, err := attestation.NewId(att, attestation.Data)
