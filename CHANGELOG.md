@@ -78,6 +78,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Increase Max Payload Size in Gossip.
 - Revert "Proposer checks gas limit before accepting builder's bid".
 - Updated quic-go to v0.48.2 .
+- Increased P2P Message limits.
 
 ### Deprecated
 
