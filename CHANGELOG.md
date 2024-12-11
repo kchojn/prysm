@@ -8,7 +8,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Added
 
-- Electra EIP6110: Queue deposit [pr](https://github.com/prysmaticlabs/prysm/pull/14430)
+- Electra EIP6110: Queue deposit [pr](https://github.com/prysmaticlabs/prysm/pull/14430).
 - Add Bellatrix tests for light client functions.
 - Add Discovery Rebooter Feature.
 - Added GetBlockAttestationsV2 endpoint.
@@ -19,12 +19,20 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Added ListAttestationsV2 endpoint.
 - Add ability to rollback node's internal state during processing.
 - Change how unsafe protobuf state is created to prevent unnecessary copies.
-- Added benchmarks for process slots for Capella, Deneb, Electra
+- Added benchmarks for process slots for Capella, Deneb, Electra.
 - Add helper to cast bytes to string without allocating memory.
 - Added GetAggregatedAttestationV2 endpoint.
 - Added SubmitAttestationsV2 endpoint.
-- Validator REST mode Electra block support
-- Added validator index label to `validator_statuses` metric
+- Validator REST mode Electra block support.
+- Added validator index label to `validator_statuses` metric.
+- Added Validator REST mode use of Attestation V2 endpoints and Electra attestations.
+- PeerDAS: Added proto for `DataColumnIdentifier`, `DataColumnSidecar`, `DataColumnSidecarsByRangeRequest` and `MetadataV2`.
+- Better attestation packing for Electra. [PR](https://github.com/prysmaticlabs/prysm/pull/14534)
+- P2P: Add logs when a peer is (dis)connected. Add the reason of the disconnection when we initiate it.
+- Added a Prometheus error counter metric for HTTP requests to track beacon node requests.
+- Added a Prometheus error counter metric for SSE requests.
+- Save light client updates and bootstraps in DB.
+- Added more comprehensive tests for `BlockToLightClientHeader`. [PR](https://github.com/prysmaticlabs/prysm/pull/14699)
 - New design for the attestation pool. [PR](https://github.com/prysmaticlabs/prysm/pull/14324)
 
 ### Changed
@@ -53,20 +61,37 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Only Build the Protobuf state once during serialization.
 - Capella blocks are execution.
 - Fixed panic when http request to subscribe to event stream fails.
-- Return early for blob reconstructor during capella fork
-- Updated block endpoint from V1 to V2
+- Return early for blob reconstructor during capella fork.
+- Updated block endpoint from V1 to V2.
 - Rename instances of "deposit receipts" to "deposit requests".
-- non-blocking payload attribute event handling in beacon api [pr](https://github.com/prysmaticlabs/prysm/pull/14644)
+- Non-blocking payload attribute event handling in beacon api [pr](https://github.com/prysmaticlabs/prysm/pull/14644).
+- Updated light client protobufs. [PR](https://github.com/prysmaticlabs/prysm/pull/14650)
+- Added `Eth-Consensus-Version` header to `ListAttestationsV2` and `GetAggregateAttestationV2` endpoints.
+- Updated light client consensus types. [PR](https://github.com/prysmaticlabs/prysm/pull/14652)
+- Update earliest exit epoch for upgrade to electra
+- Add missed exit checks to consolidation processing
+- Fixed pending deposits processing on Electra.
+- Modified `ListAttestationsV2`, `GetAttesterSlashingsV2` and `GetAggregateAttestationV2` endpoints to use slot to determine fork version.
+- Improvements to HTTP response handling. [pr](https://github.com/prysmaticlabs/prysm/pull/14673)
+- Updated `Blobs` endpoint to return additional metadata fields.
+- Made QUIC the default method to connect with peers.
+- Check kzg commitments align with blobs and proofs for beacon api end point.
+- Increase Max Payload Size in Gossip.
+- Revert "Proposer checks gas limit before accepting builder's bid".
+- Updated quic-go to v0.48.2 .
 
 ### Deprecated
 
 - `/eth/v1alpha1/validator/activation/stream` grpc wait for activation stream is deprecated. [pr](https://github.com/prysmaticlabs/prysm/pull/14514)
+- `--interop-genesis-time` and `--interop-num-validators` have been deprecated in the beacon node as the functionality has been removed. These flags have no effect.
 
 ### Removed
 
 - Removed finalized validator index cache, no longer needed.
 - Removed validator queue position log on key reload and wait for activation.
 - Removed outdated spectest exclusions for EIP-6110.
+- Removed support for starting a beacon node with a deterministic interop genesis state via interop flags. Alteratively, create a genesis state with prysmctl and use `--genesis-state`. This removes about 9Mb (~11%) of unnecessary code and dependencies from the final production binary.
+- Removed kzg proof check from blob reconstructor.
 
 ### Fixed
 
@@ -85,7 +110,16 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Fix panic in validator REST mode when checking status after removing all keys
 - Fix panic on attestation interface since we call data before validation
 - corrects nil check on some interface attestation types
-
+- temporary solution to handling electra attesation and attester_slashing events. [pr](14655)
+- Diverse log improvements and comment additions.
+- Validate that each committee bitfield in an aggregate contains at least one non-zero bit
+- P2P: Avoid infinite loop when looking for peers in small networks.
+- Fixed another rollback bug due to a context deadline.
+- Fix checkpoint sync bug on holesky. [pr](https://github.com/prysmaticlabs/prysm/pull/14689)
+- Fix proposer boost spec tests being flakey by adjusting start time from 3 to 2s into slot.
+- Fix segmentation fault in E2E when light-client feature flag is enabled. [PR](https://github.com/prysmaticlabs/prysm/pull/14699)
+- Fix `searchForPeers` infinite loop in small networks.
+- Fix slashing pool behavior to enforce MaxAttesterSlashings limit in Electra version.
 
 ### Security
 
@@ -410,6 +444,7 @@ block profit. If you want to preserve the existing behavior, set --local-block-v
 - Set default LocalBlockValueBoost to 10
 - Add bid value metrics
 - REST VC metrics
+- `startDB`: Add log when checkpoint sync.
 
 ### Changed
 

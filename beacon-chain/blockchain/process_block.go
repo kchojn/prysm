@@ -67,7 +67,10 @@ func (s *Service) postBlockProcess(cfg *postBlockProcessConfig) error {
 	if s.inRegularSync() {
 		defer s.handleSecondFCUCall(cfg, fcuArgs)
 	}
-	defer s.sendLightClientFeeds(cfg)
+	if features.Get().EnableLightClient && slots.ToEpoch(s.CurrentSlot()) >= params.BeaconConfig().AltairForkEpoch {
+		defer s.processLightClientUpdates(cfg)
+		defer s.saveLightClientUpdate(cfg)
+	}
 	defer s.sendStateFeedOnBlock(cfg)
 	defer reportProcessingTime(startTime)
 	defer reportAttestationInclusion(cfg.roblock.Block())
@@ -408,10 +411,9 @@ func (s *Service) savePostStateInfo(ctx context.Context, r [32]byte, b interface
 		return errors.Wrapf(err, "could not save block from slot %d", b.Block().Slot())
 	}
 	if err := s.cfg.StateGen.SaveState(ctx, r, st); err != nil {
-		log.Warnf("Rolling back insertion of block with root %#x", r)
-		if err := s.cfg.BeaconDB.DeleteBlock(ctx, r); err != nil {
-			log.WithError(err).Errorf("Could not delete block with block root %#x", r)
-		}
+		// Do not use parent context in the event it deadlined
+		ctx = trace.NewContext(context.Background(), span)
+		s.rollbackBlock(ctx, r)
 		return errors.Wrap(err, "could not save state")
 	}
 	return nil
