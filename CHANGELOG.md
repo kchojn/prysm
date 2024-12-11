@@ -32,6 +32,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Added a Prometheus error counter metric for HTTP requests to track beacon node requests.
 - Added a Prometheus error counter metric for SSE requests.
 - Save light client updates and bootstraps in DB.
+- Separate type for unaggregated network attestations. [PR](https://github.com/prysmaticlabs/prysm/pull/14659)
 
 ### Changed
 
