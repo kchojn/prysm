@@ -470,9 +470,9 @@ func TestGetSpec(t *testing.T) {
 			case "MIN_EPOCHS_FOR_BLOCK_REQUESTS":
 				assert.Equal(t, "33024", v)
 			case "GOSSIP_MAX_SIZE":
-				assert.Equal(t, "10485760", v)
+				assert.Equal(t, "15728640", v)
 			case "MAX_CHUNK_SIZE":
-				assert.Equal(t, "10485760", v)
+				assert.Equal(t, "15728640", v)
 			case "ATTESTATION_SUBNET_COUNT":
 				assert.Equal(t, "64", v)
 			case "MAXIMUM_GOSSIP_CLOCK_DISPARITY":

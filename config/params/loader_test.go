@@ -194,6 +194,9 @@ func TestLoadConfigFile(t *testing.T) {
 		mnf, err := params.UnmarshalConfigFile(mainnetConfigFile, nil)
 		require.NoError(t, err)
 		fields := fieldsFromYamls(t, append(mainnetPresetsFiles, mainnetConfigFile))
+		// TODO(#14714): remove hard coded sizes once spec is updated
+		mnf.MaxChunkSize = 15728640
+		mnf.GossipMaxSize = 15728640
 		assertEqualConfigs(t, "mainnet", fields, mn, mnf)
 	})
 
@@ -212,6 +215,9 @@ func TestLoadConfigFile(t *testing.T) {
 		minf, err := params.UnmarshalConfigFile(minimalConfigFile, nil)
 		require.NoError(t, err)
 		fields := fieldsFromYamls(t, append(minimalPresetsFiles, minimalConfigFile))
+		// TODO(#14714): remove hard coded sizes once spec is updated
+		minf.MaxChunkSize = 15728640
+		minf.GossipMaxSize = 15728640
 		assertEqualConfigs(t, "minimal", fields, min, minf)
 	})
 

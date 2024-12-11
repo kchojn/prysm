@@ -24,5 +24,8 @@ func TestSepoliaConfigMatchesUpstreamYaml(t *testing.T) {
 	pcfg, err := params.UnmarshalConfigFile(configFP, nil)
 	require.NoError(t, err)
 	fields := fieldsFromYamls(t, append(presetFPs, configFP))
+	// TODO(#14714): remove hard coded sizes once spec is updated
+	pcfg.MaxChunkSize = 15728640
+	pcfg.GossipMaxSize = 15728640
 	assertYamlFieldsMatch(t, "sepolia", fields, pcfg, params.SepoliaConfig())
 }
