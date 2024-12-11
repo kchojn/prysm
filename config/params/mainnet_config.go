@@ -303,8 +303,8 @@ var mainnetBeaconConfig = &BeaconChainConfig{
 	MinEpochsForDataColumnSidecarsRequest: 4096,
 
 	// Values related to networking parameters.
-	GossipMaxSize:                   10 * 1 << 20, // 10 MiB
-	MaxChunkSize:                    10 * 1 << 20, // 10 MiB
+	GossipMaxSize:                   15 * 1 << 20, // 15 MiB
+	MaxChunkSize:                    15 * 1 << 20, // 15 MiB
 	AttestationSubnetCount:          64,
 	AttestationPropagationSlotRange: 32,
 	MaxRequestBlocks:                1 << 10, // 1024
