@@ -7,8 +7,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/prysmaticlabs/prysm/v5/beacon-chain/core/blocks"
-	"github.com/prysmaticlabs/prysm/v5/beacon-chain/core/feed"
-	statefeed "github.com/prysmaticlabs/prysm/v5/beacon-chain/core/feed/state"
 	"github.com/prysmaticlabs/prysm/v5/beacon-chain/core/helpers"
 	coreTime "github.com/prysmaticlabs/prysm/v5/beacon-chain/core/time"
 	"github.com/prysmaticlabs/prysm/v5/beacon-chain/core/transition"
@@ -70,8 +68,8 @@ func (s *Service) postBlockProcess(cfg *postBlockProcessConfig) error {
 		defer s.handleSecondFCUCall(cfg, fcuArgs)
 	}
 	if features.Get().EnableLightClient && slots.ToEpoch(s.CurrentSlot()) >= params.BeaconConfig().AltairForkEpoch {
-		defer s.saveLightClientUpdates(cfg)
 		defer s.processLightClientUpdates(cfg)
+		defer s.saveLightClientUpdate(cfg)
 	}
 	defer s.sendStateFeedOnBlock(cfg)
 	defer reportProcessingTime(startTime)
@@ -79,6 +77,8 @@ func (s *Service) postBlockProcess(cfg *postBlockProcessConfig) error {
 
 	err := s.cfg.ForkChoiceStore.InsertNode(ctx, cfg.postState, cfg.roblock)
 	if err != nil {
+		// Do not use parent context in the event it deadlined
+		ctx = trace.NewContext(context.Background(), span)
 		s.rollbackBlock(ctx, cfg.roblock.Root())
 		return errors.Wrapf(err, "could not insert block %d to fork choice store", cfg.roblock.Block().Slot())
 	}
@@ -407,10 +407,9 @@ func (s *Service) savePostStateInfo(ctx context.Context, r [32]byte, b interface
 		return errors.Wrapf(err, "could not save block from slot %d", b.Block().Slot())
 	}
 	if err := s.cfg.StateGen.SaveState(ctx, r, st); err != nil {
-		log.Warnf("Rolling back insertion of block with root %#x", r)
-		if err := s.cfg.BeaconDB.DeleteBlock(ctx, r); err != nil {
-			log.WithError(err).Errorf("Could not delete block with block root %#x", r)
-		}
+		// Do not use parent context in the event it deadlined
+		ctx = trace.NewContext(context.Background(), span)
+		s.rollbackBlock(ctx, r)
 		return errors.Wrap(err, "could not save state")
 	}
 	return nil
@@ -621,9 +620,6 @@ func (s *Service) lateBlockTasks(ctx context.Context) {
 	if !s.inRegularSync() {
 		return
 	}
-	s.cfg.StateNotifier.StateFeed().Send(&feed.Event{
-		Type: statefeed.MissedSlot,
-	})
 	s.headLock.RLock()
 	headRoot := s.headRoot()
 	headState := s.headState(ctx)
@@ -651,6 +647,13 @@ func (s *Service) lateBlockTasks(ctx context.Context) {
 	attribute := s.getPayloadAttribute(ctx, headState, s.CurrentSlot()+1, headRoot[:])
 	// return early if we are not proposing next slot
 	if attribute.IsEmpty() {
+		fcuArgs := &fcuConfig{
+			headState:  headState,
+			headRoot:   headRoot,
+			headBlock:  nil,
+			attributes: attribute,
+		}
+		go firePayloadAttributesEvent(ctx, s.cfg.StateNotifier.StateFeed(), fcuArgs)
 		return
 	}
 

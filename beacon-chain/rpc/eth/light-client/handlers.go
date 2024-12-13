@@ -50,7 +50,6 @@ func (s *Server) GetLightClientBootstrap(w http.ResponseWriter, req *http.Reques
 		httputil.HandleError(w, "could not get light client bootstrap: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-
 	w.Header().Set(api.VersionHeader, version.String(bootstrap.Version()))
 
 	if httputil.RespondWithSsz(req) {
@@ -61,7 +60,7 @@ func (s *Server) GetLightClientBootstrap(w http.ResponseWriter, req *http.Reques
 		}
 		httputil.WriteSsz(w, ssz, "light_client_bootstrap.ssz")
 	} else {
-		data, err := structs.LightClientBootsrapFromConsensus(bootstrap)
+		data, err := structs.LightClientBootstrapFromConsensus(bootstrap)
 		if err != nil {
 			httputil.HandleError(w, "could not marshal bootstrap to JSON: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -151,15 +150,12 @@ func (s *Server) GetLightClientUpdatesByRange(w http.ResponseWriter, req *http.R
 			httputil.HandleError(w, "Could not convert light client update: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-
 		updateResponse := &structs.LightClientUpdateResponse{
 			Version: version.String(update.Version()),
 			Data:    updateJson,
 		}
-
 		updates = append(updates, updateResponse)
 	}
-
 	httputil.WriteJson(w, updates)
 }
 
@@ -179,14 +175,14 @@ func (s *Server) GetLightClientFinalityUpdate(w http.ResponseWriter, req *http.R
 	if httputil.RespondWithSsz(req) {
 		ssz, err := update.MarshalSSZ()
 		if err != nil {
-			httputil.HandleError(w, "could not marshal update to SSZ: "+err.Error(), http.StatusInternalServerError)
+			httputil.HandleError(w, "Could not marshal update to SSZ: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 		httputil.WriteSsz(w, ssz, "light_client_finality_update.ssz")
 	} else {
 		data, err := structs.LightClientFinalityUpdateFromConsensus(update)
 		if err != nil {
-			httputil.HandleError(w, "could not marshal update to JSON: "+err.Error(), http.StatusInternalServerError)
+			httputil.HandleError(w, "Could not marshal update to JSON: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 		response := &structs.LightClientFinalityUpdateResponse{
@@ -213,14 +209,14 @@ func (s *Server) GetLightClientOptimisticUpdate(w http.ResponseWriter, req *http
 	if httputil.RespondWithSsz(req) {
 		ssz, err := update.MarshalSSZ()
 		if err != nil {
-			httputil.HandleError(w, "could not marshal update to SSZ: "+err.Error(), http.StatusInternalServerError)
+			httputil.HandleError(w, "Could not marshal update to SSZ: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 		httputil.WriteSsz(w, ssz, "light_client_optimistic_update.ssz")
 	} else {
 		data, err := structs.LightClientOptimisticUpdateFromConsensus(update)
 		if err != nil {
-			httputil.HandleError(w, "could not marshal update to JSON: "+err.Error(), http.StatusInternalServerError)
+			httputil.HandleError(w, "Could not marshal update to JSON: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 		response := &structs.LightClientOptimisticUpdateResponse{

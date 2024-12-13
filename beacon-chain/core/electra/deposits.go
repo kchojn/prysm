@@ -386,8 +386,14 @@ func batchProcessNewPendingDeposits(ctx context.Context, state state.BeaconState
 		return errors.Wrap(err, "batch signature verification failed")
 	}
 
+	pubKeyMap := make(map[[48]byte]struct{}, len(pendingDeposits))
+
 	// Process each deposit individually
 	for _, pendingDeposit := range pendingDeposits {
+		_, found := pubKeyMap[bytesutil.ToBytes48(pendingDeposit.PublicKey)]
+		if !found {
+			pubKeyMap[bytesutil.ToBytes48(pendingDeposit.PublicKey)] = struct{}{}
+		}
 		validSignature := allSignaturesVerified
 
 		// If batch verification failed, check the individual deposit signature
@@ -405,9 +411,16 @@ func batchProcessNewPendingDeposits(ctx context.Context, state state.BeaconState
 
 		// Add validator to the registry if the signature is valid
 		if validSignature {
-			err = AddValidatorToRegistry(state, pendingDeposit.PublicKey, pendingDeposit.WithdrawalCredentials, pendingDeposit.Amount)
-			if err != nil {
-				return errors.Wrap(err, "failed to add validator to registry")
+			if found {
+				index, _ := state.ValidatorIndexByPubkey(bytesutil.ToBytes48(pendingDeposit.PublicKey))
+				if err := helpers.IncreaseBalance(state, index, pendingDeposit.Amount); err != nil {
+					return errors.Wrap(err, "could not increase balance")
+				}
+			} else {
+				err = AddValidatorToRegistry(state, pendingDeposit.PublicKey, pendingDeposit.WithdrawalCredentials, pendingDeposit.Amount)
+				if err != nil {
+					return errors.Wrap(err, "failed to add validator to registry")
+				}
 			}
 		}
 	}
@@ -560,7 +573,7 @@ func ProcessDepositRequests(ctx context.Context, beaconState state.BeaconState, 
 	return beaconState, nil
 }
 
-// processDepositRequest processes the specific deposit receipt
+// processDepositRequest processes the specific deposit request
 // def process_deposit_request(state: BeaconState, deposit_request: DepositRequest) -> None:
 //
 //	# Set deposit request start index
@@ -590,8 +603,8 @@ func processDepositRequest(beaconState state.BeaconState, request *enginev1.Depo
 	}
 	if err := beaconState.AppendPendingDeposit(&ethpb.PendingDeposit{
 		PublicKey:             bytesutil.SafeCopyBytes(request.Pubkey),
-		Amount:                request.Amount,
 		WithdrawalCredentials: bytesutil.SafeCopyBytes(request.WithdrawalCredentials),
+		Amount:                request.Amount,
 		Signature:             bytesutil.SafeCopyBytes(request.Signature),
 		Slot:                  beaconState.Slot(),
 	}); err != nil {

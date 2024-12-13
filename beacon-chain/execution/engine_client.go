@@ -623,13 +623,7 @@ func (s *Service) ReconstructBlobSidecars(ctx context.Context, block interfaces.
 			continue
 		}
 
-		// Verify the sidecar KZG proof
 		v := s.blobVerifier(roBlob, verification.ELMemPoolRequirements)
-		if err := v.SidecarKzgProofVerified(); err != nil {
-			log.WithError(err).WithField("index", i).Error("failed to verify KZG proof for sidecar")
-			continue
-		}
-
 		verifiedBlob, err := v.VerifiedROBlob()
 		if err != nil {
 			log.WithError(err).WithField("index", i).Error("failed to verify RO blob")
@@ -849,6 +843,53 @@ func EmptyExecutionPayload(v int) (proto.Message, error) {
 			BlockHash:     make([]byte, fieldparams.RootLength),
 			Transactions:  make([][]byte, 0),
 			Withdrawals:   make([]*pb.Withdrawal, 0),
+		}, nil
+	default:
+		return nil, errors.Wrapf(ErrUnsupportedVersion, "version=%s", version.String(v))
+	}
+}
+
+func EmptyExecutionPayloadHeader(v int) (proto.Message, error) {
+	switch v {
+	case version.Bellatrix:
+		return &pb.ExecutionPayloadHeader{
+			ParentHash:    make([]byte, fieldparams.RootLength),
+			FeeRecipient:  make([]byte, fieldparams.FeeRecipientLength),
+			StateRoot:     make([]byte, fieldparams.RootLength),
+			ReceiptsRoot:  make([]byte, fieldparams.RootLength),
+			LogsBloom:     make([]byte, fieldparams.LogsBloomLength),
+			PrevRandao:    make([]byte, fieldparams.RootLength),
+			ExtraData:     make([]byte, 0),
+			BaseFeePerGas: make([]byte, fieldparams.RootLength),
+			BlockHash:     make([]byte, fieldparams.RootLength),
+		}, nil
+	case version.Capella:
+		return &pb.ExecutionPayloadHeaderCapella{
+			ParentHash:       make([]byte, fieldparams.RootLength),
+			FeeRecipient:     make([]byte, fieldparams.FeeRecipientLength),
+			StateRoot:        make([]byte, fieldparams.RootLength),
+			ReceiptsRoot:     make([]byte, fieldparams.RootLength),
+			LogsBloom:        make([]byte, fieldparams.LogsBloomLength),
+			PrevRandao:       make([]byte, fieldparams.RootLength),
+			ExtraData:        make([]byte, 0),
+			BaseFeePerGas:    make([]byte, fieldparams.RootLength),
+			BlockHash:        make([]byte, fieldparams.RootLength),
+			TransactionsRoot: make([]byte, fieldparams.RootLength),
+			WithdrawalsRoot:  make([]byte, fieldparams.RootLength),
+		}, nil
+	case version.Deneb, version.Electra:
+		return &pb.ExecutionPayloadHeaderDeneb{
+			ParentHash:       make([]byte, fieldparams.RootLength),
+			FeeRecipient:     make([]byte, fieldparams.FeeRecipientLength),
+			StateRoot:        make([]byte, fieldparams.RootLength),
+			ReceiptsRoot:     make([]byte, fieldparams.RootLength),
+			LogsBloom:        make([]byte, fieldparams.LogsBloomLength),
+			PrevRandao:       make([]byte, fieldparams.RootLength),
+			ExtraData:        make([]byte, 0),
+			BaseFeePerGas:    make([]byte, fieldparams.RootLength),
+			BlockHash:        make([]byte, fieldparams.RootLength),
+			TransactionsRoot: make([]byte, fieldparams.RootLength),
+			WithdrawalsRoot:  make([]byte, fieldparams.RootLength),
 		}, nil
 	default:
 		return nil, errors.Wrapf(ErrUnsupportedVersion, "version=%s", version.String(v))

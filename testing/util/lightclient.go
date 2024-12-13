@@ -261,25 +261,33 @@ func (l *TestLightClient) SetupTestCapellaFinalizedBlockAltair(blinded bool) *Te
 func (l *TestLightClient) SetupTestAltair() *TestLightClient {
 	ctx := context.Background()
 
-	slot := primitives.Slot(params.BeaconConfig().AltairForkEpoch * primitives.Epoch(params.BeaconConfig().SlotsPerEpoch)).Add(1)
+	slot := primitives.Slot(uint64(params.BeaconConfig().AltairForkEpoch) * uint64(params.BeaconConfig().SlotsPerEpoch)).Add(1)
 
 	attestedState, err := NewBeaconStateAltair()
 	require.NoError(l.T, err)
 	err = attestedState.SetSlot(slot)
 	require.NoError(l.T, err)
 
-	finalizedBlock, err := blocks.NewSignedBeaconBlock(NewBeaconBlockAltair())
+	finalizedState, err := NewBeaconStateAltair()
 	require.NoError(l.T, err)
-	finalizedBlock.SetSlot(1)
-	finalizedHeader, err := finalizedBlock.Header()
+	err = finalizedState.SetSlot(1)
+	require.NoError(l.T, err)
+	finalizedStateRoot, err := finalizedState.HashTreeRoot(ctx)
+	require.NoError(l.T, err)
+	SignedFinalizedBlock, err := blocks.NewSignedBeaconBlock(NewBeaconBlockAltair())
+	require.NoError(l.T, err)
+	SignedFinalizedBlock.SetSlot(1)
+	SignedFinalizedBlock.SetStateRoot(finalizedStateRoot[:])
+	finalizedHeader, err := SignedFinalizedBlock.Header()
 	require.NoError(l.T, err)
 	finalizedRoot, err := finalizedHeader.Header.HashTreeRoot()
 	require.NoError(l.T, err)
 
-	require.NoError(l.T, attestedState.SetFinalizedCheckpoint(&ethpb.Checkpoint{
+	finalizedCheckpoint := &ethpb.Checkpoint{
 		Epoch: params.BeaconConfig().AltairForkEpoch - 10,
 		Root:  finalizedRoot[:],
-	}))
+	}
+	require.NoError(l.T, attestedState.SetFinalizedCheckpoint(finalizedCheckpoint))
 
 	parent := NewBeaconBlockAltair()
 	parent.Block.Slot = slot
@@ -337,7 +345,7 @@ func (l *TestLightClient) SetupTestAltair() *TestLightClient {
 	l.AttestedState = attestedState
 	l.Block = signedBlock
 	l.Ctx = ctx
-	l.FinalizedBlock = finalizedBlock
+	l.FinalizedBlock = SignedFinalizedBlock
 	l.AttestedBlock = signedParent
 
 	return l
