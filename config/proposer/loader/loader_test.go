@@ -17,6 +17,7 @@ import (
 	"github.com/prysmaticlabs/prysm/v5/config/proposer"
 	"github.com/prysmaticlabs/prysm/v5/consensus-types/validator"
 	"github.com/prysmaticlabs/prysm/v5/encoding/bytesutil"
+	validatorpb "github.com/prysmaticlabs/prysm/v5/proto/prysm/v1alpha1/validator-client"
 	"github.com/prysmaticlabs/prysm/v5/testing/assert"
 	"github.com/prysmaticlabs/prysm/v5/testing/require"
 	"github.com/prysmaticlabs/prysm/v5/validator/db/iface"
@@ -499,7 +500,7 @@ func TestProposerSettingsLoader(t *testing.T) {
 							},
 							BuilderConfig: &proposer.BuilderConfig{
 								Enabled:  true,
-								GasLimit: 50000000,
+								GasLimit: 40000000,
 							},
 						},
 					},
@@ -1001,5 +1002,29 @@ func Test_ProposerSettingsLoaderWithOnlyBuilder_DoesNotSaveInDB(t *testing.T) {
 			}
 			require.DeepEqual(t, want, got)
 		})
+	}
+}
+
+func Test_settingsLoader_processProposerSettings(t *testing.T) {
+	limit := validator.Uint64(30_000_000)
+	psl := &settingsLoader{
+		options: &flagOptions{
+			gasLimit: &limit,
+		},
+	}
+	loaded := &validatorpb.ProposerSettingsPayload{
+		ProposerConfig: map[string]*validatorpb.ProposerOptionPayload{
+			"bob": {
+				Builder: &validatorpb.BuilderConfig{
+					GasLimit: 40_000_000,
+				},
+			},
+		},
+	}
+	var db *validatorpb.ProposerSettingsPayload
+	got := psl.processProposerSettings(loaded, db)
+	require.NotNil(t, got)
+	for _, payload := range got.ProposerConfig {
+		require.Equal(t, validator.Uint64(40_000_000), payload.Builder.GasLimit)
 	}
 }

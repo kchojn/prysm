@@ -265,6 +265,9 @@ func (psl *settingsLoader) processProposerSettings(loadedSettings, dbSettings *v
 	// process any overrides for proposer config
 	for _, option := range newSettings.ProposerConfig {
 		if option != nil {
+			if loadedSettings != nil && option.Builder != nil {
+				gasLimitOnly = &option.Builder.GasLimit
+			}
 			option.Builder = processBuilderConfig(option.Builder, builderConfig, gasLimitOnly)
 		}
 	}

@@ -121,6 +121,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Fix segmentation fault in E2E when light-client feature flag is enabled. [PR](https://github.com/prysmaticlabs/prysm/pull/14699)
 - Fix `searchForPeers` infinite loop in small networks.
 - Fix slashing pool behavior to enforce MaxAttesterSlashings limit in Electra version.
+- Fix validator gas limit usage through flag and file.
 
 ### Security
 
