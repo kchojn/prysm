@@ -71,12 +71,51 @@ func (s *Service) validateCommitteeIndexBeaconAttestation(ctx context.Context, p
 		return pubsub.ValidationIgnore, nil
 	}
 
-	preState, err := s.cfg.chain.AttestationTargetState(ctx, data.Target)
-	if err != nil {
+	// Attestation's slot is within ATTESTATION_PROPAGATION_SLOT_RANGE and early attestation
+	// processing tolerance.
+	if err := helpers.ValidateAttestationTime(data.Slot, s.cfg.clock.GenesisTime(),
+		earlyAttestationProcessingTolerance); err != nil {
 		tracing.AnnotateError(span, err)
 		return pubsub.ValidationIgnore, err
 	}
-	committeeIndex, err := att.GetCommitteeIndex()
+	if err := helpers.ValidateSlotTargetEpoch(data); err != nil {
+		return pubsub.ValidationReject, err
+	}
+
+	committeeIndex, result, err := s.validateCommitteeIndex(ctx, att)
+	if result != pubsub.ValidationAccept {
+		wrappedErr := errors.Wrapf(err, "could not validate committee index for %s version", version.String(att.Version()))
+		tracing.AnnotateError(span, wrappedErr)
+		return result, wrappedErr
+	}
+
+	if !features.Get().EnableSlasher {
+		// Verify this the first attestation received for the participating validator for the slot.
+		if s.hasSeenCommitteeIndicesSlot(data.Slot, committeeIndex, att.GetAggregationBits()) {
+			return pubsub.ValidationIgnore, nil
+		}
+
+		// Reject an attestation if it references an invalid block.
+		if s.hasBadBlock(bytesutil.ToBytes32(data.BeaconBlockRoot)) ||
+			s.hasBadBlock(bytesutil.ToBytes32(data.Target.Root)) ||
+			s.hasBadBlock(bytesutil.ToBytes32(data.Source.Root)) {
+			attBadBlockCount.Inc()
+			return pubsub.ValidationReject, errors.New("attestation data references bad block root")
+		}
+	}
+
+	if !s.cfg.chain.InForkchoice(bytesutil.ToBytes32(data.BeaconBlockRoot)) {
+		tracing.AnnotateError(span, blockchain.ErrNotDescendantOfFinalized)
+		return pubsub.ValidationIgnore, blockchain.ErrNotDescendantOfFinalized
+	}
+
+	if err = s.cfg.chain.VerifyLmdFfgConsistency(ctx, att); err != nil {
+		tracing.AnnotateError(span, err)
+		attBadLmdConsistencyCount.Inc()
+		return pubsub.ValidationReject, err
+	}
+
+	preState, err := s.cfg.chain.AttestationTargetState(ctx, data.Target)
 	if err != nil {
 		tracing.AnnotateError(span, err)
 		return pubsub.ValidationIgnore, err
@@ -105,40 +144,7 @@ func (s *Service) validateCommitteeIndexBeaconAttestation(ctx context.Context, p
 		},
 	})
 
-	// Attestation's slot is within ATTESTATION_PROPAGATION_SLOT_RANGE and early attestation
-	// processing tolerance.
-	if err := helpers.ValidateAttestationTime(data.Slot, s.cfg.clock.GenesisTime(),
-		earlyAttestationProcessingTolerance); err != nil {
-		tracing.AnnotateError(span, err)
-		return pubsub.ValidationIgnore, err
-	}
-	if err := helpers.ValidateSlotTargetEpoch(data); err != nil {
-		return pubsub.ValidationReject, err
-	}
-
 	var validationRes pubsub.ValidationResult
-
-	committeeIndex, result, err := s.validateCommitteeIndex(ctx, att)
-	if result != pubsub.ValidationAccept {
-		wrappedErr := errors.Wrapf(err, "could not validate committee index for %s version", version.String(att.Version()))
-		tracing.AnnotateError(span, wrappedErr)
-		return result, wrappedErr
-	}
-
-	if !features.Get().EnableSlasher {
-		// Verify this the first attestation received for the participating validator for the slot.
-		if s.hasSeenCommitteeIndicesSlot(data.Slot, committeeIndex, att.GetAggregationBits()) {
-			return pubsub.ValidationIgnore, nil
-		}
-
-		// Reject an attestation if it references an invalid block.
-		if s.hasBadBlock(bytesutil.ToBytes32(data.BeaconBlockRoot)) ||
-			s.hasBadBlock(bytesutil.ToBytes32(data.Target.Root)) ||
-			s.hasBadBlock(bytesutil.ToBytes32(data.Source.Root)) {
-			attBadBlockCount.Inc()
-			return pubsub.ValidationReject, errors.New("attestation data references bad block root")
-		}
-	}
 
 	// Verify the block being voted and the processed state is in beaconDB and the block has passed validation if it's in the beaconDB.
 	blockRoot := bytesutil.ToBytes32(data.BeaconBlockRoot)
@@ -160,16 +166,6 @@ func (s *Service) validateCommitteeIndexBeaconAttestation(ctx context.Context, p
 			s.savePendingAtt(&eth.SignedAggregateAttestationAndProof{Message: &eth.AggregateAttestationAndProof{Aggregate: a}})
 		}
 		return pubsub.ValidationIgnore, nil
-	}
-
-	if !s.cfg.chain.InForkchoice(bytesutil.ToBytes32(data.BeaconBlockRoot)) {
-		tracing.AnnotateError(span, blockchain.ErrNotDescendantOfFinalized)
-		return pubsub.ValidationIgnore, blockchain.ErrNotDescendantOfFinalized
-	}
-	if err := s.cfg.chain.VerifyLmdFfgConsistency(ctx, att); err != nil {
-		tracing.AnnotateError(span, err)
-		attBadLmdConsistencyCount.Inc()
-		return pubsub.ValidationReject, err
 	}
 
 	validationRes, err = s.validateUnaggregatedAttTopic(ctx, att, preState, *msg.Topic)

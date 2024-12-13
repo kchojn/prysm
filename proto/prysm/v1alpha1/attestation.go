@@ -341,8 +341,8 @@ func (a *SingleAttestation) ToAttestationElectra(committee []primitives.Validato
 
 	return &AttestationElectra{
 		AggregationBits: ab,
-		Data:            a.Data.Copy(),
-		Signature:       bytesutil.SafeCopyBytes(a.Signature),
+		Data:            a.Data,
+		Signature:       a.Signature,
 		CommitteeBits:   cb,
 	}
 }
