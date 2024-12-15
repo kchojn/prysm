@@ -125,6 +125,7 @@ type BeaconChainConfig struct {
 	DomainApplicationMask             [4]byte `yaml:"DOMAIN_APPLICATION_MASK" spec:"true"`               // DomainApplicationMask defines the BLS signature domain for application mask.
 	DomainApplicationBuilder          [4]byte `yaml:"DOMAIN_APPLICATION_BUILDER" spec:"true"`            // DomainApplicationBuilder defines the BLS signature domain for application builder.
 	DomainBLSToExecutionChange        [4]byte `yaml:"DOMAIN_BLS_TO_EXECUTION_CHANGE" spec:"true"`        // DomainBLSToExecutionChange defines the BLS signature domain to change withdrawal addresses to ETH1 prefix
+	DomainIlcommittee                 [4]byte `yaml:"DOMAIN_IL_COMMITTEE" spec:"true"`                   // DomainIlcommittee defines the BLS signature domain for inclusion list committee root.
 
 	// Prysm constants.
 	GenesisValidatorsRoot          [32]byte        // GenesisValidatorsRoot is the root hash of the genesis validators.
@@ -167,6 +168,8 @@ type BeaconChainConfig struct {
 	ElectraForkVersion   []byte           `yaml:"ELECTRA_FORK_VERSION" spec:"true"`   // ElectraForkVersion is used to represent the fork version for electra.
 	ElectraForkEpoch     primitives.Epoch `yaml:"ELECTRA_FORK_EPOCH" spec:"true"`     // ElectraForkEpoch is used to represent the assigned fork epoch for electra.
 	Eip7594ForkEpoch     primitives.Epoch `yaml:"EIP7594_FORK_EPOCH" spec:"true"`     // EIP7594ForkEpoch is used to represent the assigned fork epoch for peer das.
+	FocilForkEpoch       primitives.Epoch `yaml:"FOCIL_FORK_EPOCH" spec:"true"`       // FocilForkEpoch is used to represent the assigned fork epoch for focil.
+	FocilForkVersion     []byte           `yaml:"FOCIL_FORK_VERSION" spec:"true"`     // FocilForkVersion is used to represent the fork version for focil.
 
 	ForkVersionSchedule map[[fieldparams.VersionLength]byte]primitives.Epoch // Schedule of fork epochs by version.
 	ForkVersionNames    map[[fieldparams.VersionLength]byte]string           // Human-readable names of fork versions.
@@ -280,6 +283,8 @@ type BeaconChainConfig struct {
 	AttestationSubnetPrefixBits     uint64          `yaml:"ATTESTATION_SUBNET_PREFIX_BITS" spec:"true"`     // AttestationSubnetPrefixBits is defined as (ceillog2(ATTESTATION_SUBNET_COUNT) + ATTESTATION_SUBNET_EXTRA_BITS).
 	SubnetsPerNode                  uint64          `yaml:"SUBNETS_PER_NODE" spec:"true"`                   // SubnetsPerNode is the number of long-lived subnets a beacon node should be subscribed to.
 	NodeIdBits                      uint64          `yaml:"NODE_ID_BITS" spec:"true"`                       // NodeIdBits defines the bit length of a node id.
+
+	InclusionListCommitteeSize uint64
 }
 
 // InitializeForkSchedule initializes the schedules forks baked into the config.
