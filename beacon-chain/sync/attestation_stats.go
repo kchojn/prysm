@@ -9,7 +9,23 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+const (
+	percentFactor = 100
+)
+
+// StatsCollector defines the interface for collecting attestation statistics.
+type StatsCollector interface {
+	// recordSuccess records a successful attestation verification.
+	recordSuccess()
+	// recordFailure records a failed attestation verification with a reason.
+	recordFailure(reason string)
+	// getStats returns current statistics about attestation verifications.
+	getStats() (uint64, uint64, map[string]uint64)
+}
+
 // attestationStats handles attestation verification statistics collection.
+// It keeps track of successful and failed attestations, along with failure reasons,
+// and provides thread-safe access to these statistics.
 type attestationStats struct {
 	mu             sync.RWMutex
 	successCount   uint64
@@ -25,7 +41,8 @@ func newAttestationStats() *attestationStats {
 	}
 }
 
-// recordSuccess increments the successful attestation counter.
+// recordSuccess increments the successful attestation counter and updates related metrics.
+// This method is thread-safe and can be called concurrently from multiple goroutines.
 func (as *attestationStats) recordSuccess() {
 	as.mu.Lock()
 	defer as.mu.Unlock()
@@ -36,9 +53,17 @@ func (as *attestationStats) recordSuccess() {
 }
 
 // recordFailure increments the failed attestation counter and records the failure reason.
+// This method is thread-safe and can be called concurrently from multiple goroutines.
+// If an empty reason is provided, it will be recorded as "unknown".
+// Parameters:
+//   - reason: The reason for the attestation verification failure
 func (as *attestationStats) recordFailure(reason string) {
 	as.mu.Lock()
 	defer as.mu.Unlock()
+
+	if reason == "" {
+		reason = "unknown"
+	}
 
 	as.failureCount++
 	as.failureReasons[reason]++
@@ -47,12 +72,19 @@ func (as *attestationStats) recordFailure(reason string) {
 	attestationVerificationFailureReasons.WithLabelValues(reason).Inc()
 }
 
+// recordLatency records the duration of attestation verification.
+// Parameters:
+//   - duration: The time taken to verify the attestation
 func (as *attestationStats) recordLatency(duration time.Duration) {
 	attestationVerificationLatency.Observe(duration.Seconds())
 }
 
-// getStats returns the current attestation verification statisticas.
-// The returned map is a copy of the internal failure reasons map, so it is safe to read concurrently.
+// getStats returns the current attestation verification statistics.
+// The returned map is a copy of the internal failure reasons map, making it safe for concurrent access.
+// Returns:
+//   - successCount: Number of successful attestation verifications
+//   - failureCount: Number of failed attestation verifications
+//   - failureReasons: Map of failure reasons and their counts
 func (as *attestationStats) getStats() (uint64, uint64, map[string]uint64) {
 	as.mu.RLock()
 	defer as.mu.RUnlock()
@@ -66,7 +98,11 @@ func (as *attestationStats) getStats() (uint64, uint64, map[string]uint64) {
 	return as.successCount, as.failureCount, failureCopy
 }
 
-// outputEpochSummary outputs the statistics for the current epoch.
+// outputEpochSummary outputs the statistics for the current epoch and resets counters if needed.
+// This method logs the success rate and failure breakdown for the current epoch.
+// If the current epoch is greater than the last recorded epoch, all statistics are reset.
+// Parameters:
+//   - currentEpoch: The current epoch number for which to output statistics
 func (as *attestationStats) outputEpochSummary(currentEpoch primitives.Epoch) {
 	as.mu.Lock()
 	defer as.mu.Unlock()
@@ -75,11 +111,12 @@ func (as *attestationStats) outputEpochSummary(currentEpoch primitives.Epoch) {
 	total := as.successCount + as.failureCount
 
 	if total > 0 {
-		successRate = float64(as.successCount) / float64(total) * 100 //nolint:mnd // 100 is the percentage factor.
+		successRate = float64(as.successCount) / float64(total) * percentFactor
 	}
 
 	log.WithFields(logrus.Fields{
 		"epoch":           currentEpoch,
+		"context":         "attestation_verification",
 		"successes":       as.successCount,
 		"failures":        as.failureCount,
 		"success_rate":    fmt.Sprintf("%.2f%%", successRate),
