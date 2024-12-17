@@ -165,7 +165,7 @@ func (s *Service) updateCheckpoints(
 		if err != nil {
 			return errors.Wrap(err, "could not get head state")
 		}
-		if err := reportEpochMetrics(ctx, postState, headSt); err != nil {
+		if err := reportEpochMetrics(ctx, postState, headSt, s.attestationStats); err != nil {
 			log.WithError(err).Error("could not report epoch metrics")
 		}
 	}

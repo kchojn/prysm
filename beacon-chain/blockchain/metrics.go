@@ -2,6 +2,8 @@ package blockchain
 
 import (
 	"context"
+	"fmt"
+	"github.com/sirupsen/logrus"
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -221,22 +223,22 @@ var (
 			Buckets: []float64{1, 2, 4, 8, 16, 32},
 		},
 	)
-	attestationVerificationSuccess = promauto.NewCounter(prometheus.CounterOpts{
+	attestationVerificationSuccessTotal = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "attestation_verification_success_total",
 		Help: "The total number of successfully verified attestations",
 	})
-	attestationVerificationFailure = promauto.NewCounter(prometheus.CounterOpts{
+	attestationVerificationFailureTotal = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "attestation_verification_failure_total",
 		Help: "The total number of failed attestation verifications",
 	})
-	attestationVerificationFailureReasons = promauto.NewCounterVec(
+	attestationVerificationFailureReasonsTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "attestation_verification_failure_reasons_total",
 			Help: "The total number of attestation verification failures by reason",
 		},
 		[]string{"reason"},
 	)
-	attestationVerificationLatency = promauto.NewHistogram(
+	attestationVerificationLatencySeconds = promauto.NewHistogram(
 		prometheus.HistogramOpts{
 			Name:    "attestation_verification_latency_seconds",
 			Help:    "Latency of attestation verification in seconds",
@@ -257,7 +259,7 @@ func reportSlotMetrics(stateSlot, headSlot, clockSlot primitives.Slot, finalized
 }
 
 // reportEpochMetrics reports epoch related metrics.
-func reportEpochMetrics(ctx context.Context, postState, headState state.BeaconState) error {
+func reportEpochMetrics(ctx context.Context, postState, headState state.BeaconState, stats *attestationStats) error {
 	currentEpoch := primitives.Epoch(postState.Slot() / params.BeaconConfig().SlotsPerEpoch)
 
 	// Validator instances
@@ -386,11 +388,35 @@ func reportEpochMetrics(ctx context.Context, postState, headState state.BeaconSt
 	}
 	postState.RecordStateMetrics()
 
+	if stats != nil {
+		summary := stats.outputEpochSummary(currentEpoch)
+		if summary.ResetOccurred {
+			reportAttestationStats(summary)
+		}
+	}
+
 	return nil
 }
 
 func reportAttestationInclusion(blk interfaces.ReadOnlyBeaconBlock) {
 	for _, att := range blk.Body().Attestations() {
 		attestationInclusionDelay.Observe(float64(blk.Slot() - att.GetData().Slot))
+	}
+}
+
+func reportAttestationStats(summary EpochSummary) {
+	log.WithFields(logrus.Fields{
+		"epoch":          summary.Epoch,
+		"successes":      summary.Successes,
+		"failures":       summary.Failures,
+		"successRate":    fmt.Sprintf("%.2f%%", summary.SuccessRate),
+		"totalProcessed": summary.TotalProcessed,
+		"failureReasons": summary.FailureReasons,
+	}).Info("Attestation verification statistics for epoch")
+
+	attestationVerificationSuccessTotal.Add(float64(summary.Successes))
+	attestationVerificationFailureTotal.Add(float64(summary.Failures))
+	for reason, count := range summary.FailureReasons {
+		attestationVerificationFailureReasonsTotal.WithLabelValues(reason).Add(float64(count))
 	}
 }

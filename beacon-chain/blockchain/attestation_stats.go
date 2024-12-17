@@ -2,7 +2,6 @@ package blockchain
 
 import (
 	"sync"
-	"time"
 
 	"github.com/prysmaticlabs/prysm/v5/consensus-types/primitives"
 )
@@ -33,7 +32,7 @@ type StatsCollector interface {
 }
 
 // attestationStats handles attestation verification statistics collection.
-// It keeps track of successful and failed attestations, along with failure reasonsdd
+// It keeps track of successful and failed attestations, along with failure reasonsddoc
 // and provides thread-safe access to these statistics.
 type attestationStats struct {
 	mu             sync.RWMutex
@@ -57,8 +56,6 @@ func (as *attestationStats) recordSuccess() {
 	defer as.mu.Unlock()
 
 	as.successCount++
-
-	attestationVerificationSuccess.Inc()
 }
 
 // recordFailure increments the failed attestation counter and records the failure reason.
@@ -76,16 +73,6 @@ func (as *attestationStats) recordFailure(reason string) {
 
 	as.failureCount++
 	as.failureReasons[reason]++
-
-	attestationVerificationFailure.Inc()
-	attestationVerificationFailureReasons.WithLabelValues(reason).Inc()
-}
-
-// recordLatency records the duration of attestation verification.
-// Parameters:
-//   - duration: The time taken to verify the attestation
-func (as *attestationStats) recordLatency(duration time.Duration) {
-	attestationVerificationLatency.Observe(duration.Seconds())
 }
 
 // getStats returns the current attestation verification statistics.
