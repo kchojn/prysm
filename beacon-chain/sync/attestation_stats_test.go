@@ -82,7 +82,7 @@ func TestAttestationStats_Concurrent(t *testing.T) {
 	expectedTotal := uint64(workers * iterations)
 	actualTotal := successes + failures
 
-	require.Equal(t, expectedTotal, actualTotal, "Total operations count incorrect")
+	require.Equal(t, expectedTotal, actualTotal)
 
 	for _, reason := range failureReasons {
 		count := reasons[reason]
@@ -93,12 +93,12 @@ func TestAttestationStats_Concurrent(t *testing.T) {
 	for _, count := range reasons {
 		totalReasonCounts += count
 	}
-	require.Equal(t, failures, totalReasonCounts, "Sum of failure reasons does not match total failures")
+	require.Equal(t, failures, totalReasonCounts)
 
-	require.NotEqual(t, uint64(0), successes, "No successes recorded")
-	require.NotEqual(t, uint64(0), failures, "No failures recorded")
-	require.NotEqual(t, expectedTotal, failures, "All operations were failures")
-	require.NotEqual(t, expectedTotal, successes, "All operations were successes")
+	require.NotEqual(t, uint64(0), successes)
+	require.NotEqual(t, uint64(0), failures)
+	require.NotEqual(t, expectedTotal, failures)
+	require.NotEqual(t, expectedTotal, successes)
 }
 
 func TestAttestationStats_OutputEpochSummary(t *testing.T) {
