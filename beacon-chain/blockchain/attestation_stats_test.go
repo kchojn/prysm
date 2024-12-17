@@ -115,8 +115,9 @@ func TestMetricsCollector_AdvanceEpoch(t *testing.T) {
 	collector.RecordFailure("decode_error")
 	collector.RecordFailure("invalid_signature")
 
-	oldMetrics := collector.AdvanceEpoch(primitives.Epoch(1))
+	oldMetrics, err := collector.AdvanceEpoch(primitives.Epoch(1))
 
+	require.NoError(t, err)
 	require.Equal(t, primitives.Epoch(0), oldMetrics.Epoch)
 	require.Equal(t, uint64(2), oldMetrics.Successes)
 	require.Equal(t, uint64(2), oldMetrics.Failures)
@@ -132,8 +133,9 @@ func TestMetricsCollector_AdvanceEpoch(t *testing.T) {
 	collector.RecordSuccess()
 	collector.RecordFailure("decode_error")
 
-	oldMetrics = collector.AdvanceEpoch(primitives.Epoch(2))
+	oldMetrics, err = collector.AdvanceEpoch(primitives.Epoch(2))
 
+	require.NoError(t, err)
 	require.Equal(t, primitives.Epoch(1), oldMetrics.Epoch)
 	require.Equal(t, uint64(1), oldMetrics.Successes)
 	require.Equal(t, uint64(1), oldMetrics.Failures)

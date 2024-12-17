@@ -386,7 +386,16 @@ func reportEpochMetrics(ctx context.Context, postState, headState state.BeaconSt
 		return nil
 	}
 
-	summary := stats.AdvanceEpoch(currentEpoch)
+	summary, err := stats.AdvanceEpoch(currentEpoch)
+	if err != nil {
+		log.WithFields(logrus.Fields{
+			"error":     err,
+			"epoch":     currentEpoch,
+			"component": "attestation_metrics",
+		}).Error("Failed to advance metrics epoch")
+		return nil
+	}
+
 	reportAttestationStats(summary)
 
 	return nil

@@ -3,11 +3,16 @@ package blockchain
 import (
 	"sync"
 
+	"github.com/pkg/errors"
 	"github.com/prysmaticlabs/prysm/v5/consensus-types/primitives"
 )
 
 const (
 	percentFactor = 100
+)
+
+var (
+	ErrNewEpochLessThanCurrent = errors.New("new epoch must be greater than current epoch")
 )
 
 // AttestationRecorder handles recording attestation verification outcomes.
@@ -31,7 +36,7 @@ type AttestationMetricsCollector interface {
 
 	// AdvanceEpoch finalizes metrics for the current epoch, resets counters, and sets the new current epoch.
 	// It returns the metrics of the epoch that just ended.
-	AdvanceEpoch(newEpoch primitives.Epoch) AttestationMetrics
+	AdvanceEpoch(newEpoch primitives.Epoch) (AttestationMetrics, error)
 }
 
 // AttestationMetrics represents verification metrics for an epoch.
@@ -90,16 +95,20 @@ func (mc *metricsCollector) GetCurrentMetrics() AttestationMetrics {
 }
 
 // AdvanceEpoch finalizes the current epoch's metrics, resets counters, and updates the current epoch.
-func (mc *metricsCollector) AdvanceEpoch(newEpoch primitives.Epoch) AttestationMetrics {
+func (mc *metricsCollector) AdvanceEpoch(newEpoch primitives.Epoch) (AttestationMetrics, error) {
 	mc.mu.Lock()
 	defer mc.mu.Unlock()
+
+	if newEpoch <= mc.currentEpoch {
+		return AttestationMetrics{}, ErrNewEpochLessThanCurrent
+	}
 
 	currentMetrics := mc.getCurrentMetricsLocked()
 
 	mc.reset()
 	mc.currentEpoch = newEpoch
 
-	return currentMetrics
+	return currentMetrics, nil
 }
 
 // getCurrentMetricsLocked is a helper method that assumes the lock is already held.
