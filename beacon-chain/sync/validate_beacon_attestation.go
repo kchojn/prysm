@@ -3,6 +3,7 @@ package sync
 import (
 	"context"
 	"fmt"
+	"github.com/prysmaticlabs/prysm/v5/time"
 	"reflect"
 	"strings"
 
@@ -36,6 +37,12 @@ import (
 // - attestation.data.slot is within the last ATTESTATION_PROPAGATION_SLOT_RANGE slots (attestation.data.slot + ATTESTATION_PROPAGATION_SLOT_RANGE >= current_slot >= attestation.data.slot).
 // - The signature of attestation is valid.
 func (s *Service) validateCommitteeIndexBeaconAttestation(ctx context.Context, pid peer.ID, msg *pubsub.Message) (pubsub.ValidationResult, error) {
+	startTime := time.Now()
+
+	defer func() {
+		s.attestationStats.recordLatency(time.Since(startTime))
+	}()
+
 	if pid == s.cfg.p2p.PeerID() {
 		return pubsub.ValidationAccept, nil
 	}
@@ -49,26 +56,31 @@ func (s *Service) validateCommitteeIndexBeaconAttestation(ctx context.Context, p
 	defer span.End()
 
 	if msg.Topic == nil {
+		s.attestationStats.recordFailure("no_topic")
 		return pubsub.ValidationReject, errInvalidTopic
 	}
 
 	m, err := s.decodePubsubMessage(msg)
 	if err != nil {
+		s.attestationStats.recordFailure("decode_error")
 		tracing.AnnotateError(span, err)
 		return pubsub.ValidationReject, err
 	}
 
 	att, ok := m.(eth.Att)
 	if !ok {
+		s.attestationStats.recordFailure("wrong_message_type")
 		return pubsub.ValidationReject, errWrongMessage
 	}
 	if err := helpers.ValidateNilAttestation(att); err != nil {
+		s.attestationStats.recordFailure("nil_attestation")
 		return pubsub.ValidationReject, err
 	}
 	data := att.GetData()
 
 	// Do not process slot 0 attestations.
 	if data.Slot == 0 {
+		s.attestationStats.recordFailure("slot_zero")
 		return pubsub.ValidationIgnore, nil
 	}
 	// Broadcast the unaggregated attestation on a feed to notify other services in the beacon node
@@ -84,10 +96,12 @@ func (s *Service) validateCommitteeIndexBeaconAttestation(ctx context.Context, p
 	// processing tolerance.
 	if err := helpers.ValidateAttestationTime(data.Slot, s.cfg.clock.GenesisTime(),
 		earlyAttestationProcessingTolerance); err != nil {
+		s.attestationStats.recordFailure("invalid_attestation_time")
 		tracing.AnnotateError(span, err)
 		return pubsub.ValidationIgnore, err
 	}
 	if err := helpers.ValidateSlotTargetEpoch(data); err != nil {
+		s.attestationStats.recordFailure("invalid_slot_target_epoch")
 		return pubsub.ValidationReject, err
 	}
 
@@ -95,6 +109,7 @@ func (s *Service) validateCommitteeIndexBeaconAttestation(ctx context.Context, p
 
 	committeeIndex, result, err := s.validateCommitteeIndex(ctx, att)
 	if result != pubsub.ValidationAccept {
+		s.attestationStats.recordFailure("invalid_committee_index")
 		wrappedErr := errors.Wrapf(err, "could not validate committee index for %s version", version.String(att.Version()))
 		tracing.AnnotateError(span, wrappedErr)
 		return result, wrappedErr
@@ -103,6 +118,7 @@ func (s *Service) validateCommitteeIndexBeaconAttestation(ctx context.Context, p
 	if !features.Get().EnableSlasher {
 		// Verify this the first attestation received for the participating validator for the slot.
 		if s.hasSeenCommitteeIndicesSlot(data.Slot, committeeIndex, att.GetAggregationBits()) {
+			s.attestationStats.recordFailure("duplicate_committee_indices_slot")
 			return pubsub.ValidationIgnore, nil
 		}
 
@@ -110,6 +126,7 @@ func (s *Service) validateCommitteeIndexBeaconAttestation(ctx context.Context, p
 		if s.hasBadBlock(bytesutil.ToBytes32(data.BeaconBlockRoot)) ||
 			s.hasBadBlock(bytesutil.ToBytes32(data.Target.Root)) ||
 			s.hasBadBlock(bytesutil.ToBytes32(data.Source.Root)) {
+			s.attestationStats.recordFailure("references_bad_block")
 			attBadBlockCount.Inc()
 			return pubsub.ValidationReject, errors.New("attestation data references bad block root")
 		}
@@ -118,11 +135,13 @@ func (s *Service) validateCommitteeIndexBeaconAttestation(ctx context.Context, p
 	// Verify the block being voted and the processed state is in beaconDB and the block has passed validation if it's in the beaconDB.
 	blockRoot := bytesutil.ToBytes32(data.BeaconBlockRoot)
 	if !s.hasBlockAndState(ctx, blockRoot) {
+		s.attestationStats.recordFailure("missing_block_or_state")
 		// A node doesn't have the block, it'll request from peer while saving the pending attestation to a queue.
 		if att.Version() >= version.Electra {
 			a, ok := att.(*eth.AttestationElectra)
 			// This will never fail in practice because we asserted the version
 			if !ok {
+				s.attestationStats.recordFailure("invalid_electra_attestation_type")
 				return pubsub.ValidationIgnore, fmt.Errorf("attestation has wrong type (expected %T, got %T)", &eth.AttestationElectra{}, att)
 			}
 			s.savePendingAtt(&eth.SignedAggregateAttestationAndProofElectra{Message: &eth.AggregateAttestationAndProofElectra{Aggregate: a}})
@@ -130,6 +149,7 @@ func (s *Service) validateCommitteeIndexBeaconAttestation(ctx context.Context, p
 			a, ok := att.(*eth.Attestation)
 			// This will never fail in practice because we asserted the version
 			if !ok {
+				s.attestationStats.recordFailure("invalid_attestation_type")
 				return pubsub.ValidationIgnore, fmt.Errorf("attestation has wrong type (expected %T, got %T)", &eth.Attestation{}, att)
 			}
 			s.savePendingAtt(&eth.SignedAggregateAttestationAndProof{Message: &eth.AggregateAttestationAndProof{Aggregate: a}})
@@ -138,10 +158,12 @@ func (s *Service) validateCommitteeIndexBeaconAttestation(ctx context.Context, p
 	}
 
 	if !s.cfg.chain.InForkchoice(bytesutil.ToBytes32(data.BeaconBlockRoot)) {
+		s.attestationStats.recordFailure("not_descendant_of_finalized")
 		tracing.AnnotateError(span, blockchain.ErrNotDescendantOfFinalized)
 		return pubsub.ValidationIgnore, blockchain.ErrNotDescendantOfFinalized
 	}
 	if err := s.cfg.chain.VerifyLmdFfgConsistency(ctx, att); err != nil {
+		s.attestationStats.recordFailure("invalid_lmd_ffg_consistency")
 		tracing.AnnotateError(span, err)
 		attBadLmdConsistencyCount.Inc()
 		return pubsub.ValidationReject, err
@@ -149,17 +171,20 @@ func (s *Service) validateCommitteeIndexBeaconAttestation(ctx context.Context, p
 
 	preState, err := s.cfg.chain.AttestationTargetState(ctx, data.Target)
 	if err != nil {
+		s.attestationStats.recordFailure("invalid_target_state")
 		tracing.AnnotateError(span, err)
 		return pubsub.ValidationIgnore, err
 	}
 
 	validationRes, err = s.validateUnaggregatedAttTopic(ctx, att, preState, *msg.Topic)
 	if validationRes != pubsub.ValidationAccept {
+		s.attestationStats.recordFailure("invalid_unaggregated_attestation_topic")
 		return validationRes, err
 	}
 
 	validationRes, err = s.validateUnaggregatedAttWithState(ctx, att, preState)
 	if validationRes != pubsub.ValidationAccept {
+		s.attestationStats.recordFailure("invalid_unaggregated_attestation_state")
 		return validationRes, err
 	}
 
@@ -172,18 +197,21 @@ func (s *Service) validateCommitteeIndexBeaconAttestation(ctx context.Context, p
 			ctx := context.TODO()
 			preState, err := s.cfg.chain.AttestationTargetState(ctx, data.Target)
 			if err != nil {
+				s.attestationStats.recordFailure("slasher_invalid_target_state")
 				log.WithError(err).Error("Could not retrieve pre state")
 				tracing.AnnotateError(span, err)
 				return
 			}
 			committee, err := helpers.BeaconCommitteeFromState(ctx, preState, data.Slot, committeeIndex)
 			if err != nil {
+				s.attestationStats.recordFailure("slasher_invalid_committee")
 				log.WithError(err).Error("Could not get attestation committee")
 				tracing.AnnotateError(span, err)
 				return
 			}
 			indexedAtt, err := attestation.ConvertToIndexed(ctx, att, committee)
 			if err != nil {
+				s.attestationStats.recordFailure("slasher_conversion_failed")
 				log.WithError(err).Error("Could not convert to indexed attestation")
 				tracing.AnnotateError(span, err)
 				return
@@ -195,6 +223,11 @@ func (s *Service) validateCommitteeIndexBeaconAttestation(ctx context.Context, p
 	s.setSeenCommitteeIndicesSlot(data.Slot, committeeIndex, att.GetAggregationBits())
 
 	msg.ValidatorData = att
+
+	s.attestationStats.recordSuccess()
+
+	currentEpoch := slots.ToEpoch(s.cfg.clock.CurrentSlot())
+	s.attestationStats.outputEpochSummary(currentEpoch)
 
 	return pubsub.ValidationAccept, nil
 }

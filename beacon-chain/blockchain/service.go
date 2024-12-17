@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	monitoringattestations "github.com/prysmaticlabs/prysm/v5/monitoring/attestations"
 	"runtime"
 	"sync"
 	"time"
@@ -66,8 +65,6 @@ type Service struct {
 	blobNotifiers        *blobNotifierMap
 	blockBeingSynced     *currentlySyncingBlock
 	blobStorage          *filesystem.BlobStorage
-
-	attestationStats *monitoringattestations.StatsCollector
 }
 
 // config options for the service.
@@ -180,7 +177,6 @@ func NewService(ctx context.Context, opts ...Option) (*Service, error) {
 		blobNotifiers:        bn,
 		cfg:                  &config{},
 		blockBeingSynced:     &currentlySyncingBlock{roots: make(map[[32]byte]struct{})},
-		attestationStats:     monitoringattestations.New(),
 	}
 	for _, opt := range opts {
 		if err := opt(srv); err != nil {
