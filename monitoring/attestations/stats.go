@@ -10,7 +10,7 @@ import (
 
 // StatsCollector handles attestation verification statistics collection.
 type StatsCollector struct {
-	sync.RWMutex
+	mu              sync.RWMutex
 	successfulCount uint64
 	failedCount     uint64
 	failureReasons  map[string]uint64
@@ -26,23 +26,36 @@ func New() *StatsCollector {
 
 // RecordSuccess increments the successful attestation counter.
 func (s *StatsCollector) RecordSuccess() {
-	s.Lock()
-	defer s.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.successfulCount++
 }
 
 // RecordFailure increments the failed attestation counter and records the failure reason.
 func (s *StatsCollector) RecordFailure(reason string) {
-	s.Lock()
-	defer s.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.failedCount++
 	s.failureReasons[reason]++
 }
 
+// GetStats returns the current attestation verification statistics.
+// The returned map is a copy of the internal failure reasons map, so it is safe to read concurrently.
+func (s *StatsCollector) GetStats() (uint64, uint64, map[string]uint64, primitives.Epoch) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	failureCopy := make(map[string]uint64, len(s.failureReasons))
+	for k, v := range s.failureReasons {
+		failureCopy[k] = v
+	}
+	return s.successfulCount, s.failedCount, failureCopy, s.currentEpoch
+}
+
 // OutputEpochSummary outputs the statistics for the current epoch.
 func (s *StatsCollector) OutputEpochSummary(epoch primitives.Epoch) {
-	s.Lock()
-	defer s.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	logrus.WithFields(logrus.Fields{
 		"epoch":            epoch,
