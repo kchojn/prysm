@@ -3,9 +3,10 @@ package sync
 import (
 	"context"
 	"fmt"
-	"github.com/prysmaticlabs/prysm/v5/time"
 	"reflect"
 	"strings"
+
+	"github.com/prysmaticlabs/prysm/v5/time"
 
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/peer"
