@@ -3,6 +3,7 @@ package blockchain
 import (
 	"context"
 	"fmt"
+
 	"github.com/sirupsen/logrus"
 
 	"github.com/pkg/errors"
@@ -381,10 +382,12 @@ func reportEpochMetrics(ctx context.Context, postState, headState state.BeaconSt
 	}
 	postState.RecordStateMetrics()
 
-	if stats != nil {
-		summary := stats.AdvanceEpoch(currentEpoch)
-		reportAttestationStats(summary)
+	if stats == nil {
+		return nil
 	}
+
+	summary := stats.AdvanceEpoch(currentEpoch)
+	reportAttestationStats(summary)
 
 	return nil
 }
@@ -395,6 +398,9 @@ func reportAttestationInclusion(blk interfaces.ReadOnlyBeaconBlock) {
 	}
 }
 
+// reportAttestationStats reports attestation verification statistics for a completed epoch
+// to both the logger and Prometheus metrics. It tracks the total number of successful and failed
+// attestation verifications, along with specific failure reasons and success rates.
 func reportAttestationStats(summary AttestationMetrics) {
 	log.WithFields(logrus.Fields{
 		"epoch":          summary.Epoch,

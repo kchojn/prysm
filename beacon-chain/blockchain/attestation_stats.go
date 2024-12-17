@@ -86,7 +86,26 @@ func (mc *metricsCollector) GetCurrentMetrics() AttestationMetrics {
 	mc.mu.Lock()
 	defer mc.mu.Unlock()
 
+	return mc.getCurrentMetricsLocked()
+}
+
+// AdvanceEpoch finalizes the current epoch's metrics, resets counters, and updates the current epoch.
+func (mc *metricsCollector) AdvanceEpoch(newEpoch primitives.Epoch) AttestationMetrics {
+	mc.mu.Lock()
+	defer mc.mu.Unlock()
+
+	currentMetrics := mc.getCurrentMetricsLocked()
+
+	mc.reset()
+	mc.currentEpoch = newEpoch
+
+	return currentMetrics
+}
+
+// getCurrentMetricsLocked is a helper method that assumes the lock is already held.
+func (mc *metricsCollector) getCurrentMetricsLocked() AttestationMetrics {
 	total := mc.successCount + mc.failureCount
+
 	successRate := 0.0
 	if total > 0 {
 		successRate = float64(mc.successCount) / float64(total) * percentFactor
@@ -105,38 +124,6 @@ func (mc *metricsCollector) GetCurrentMetrics() AttestationMetrics {
 		TotalProcessed: total,
 		FailureReasons: reasonsCopy,
 	}
-}
-
-// AdvanceEpoch finalizes the current epoch's metrics, resets counters, and updates the current epoch.
-func (mc *metricsCollector) AdvanceEpoch(newEpoch primitives.Epoch) AttestationMetrics {
-	mc.mu.Lock()
-	defer mc.mu.Unlock()
-
-	total := mc.successCount + mc.failureCount
-	successRate := 0.0
-	if total > 0 {
-		successRate = float64(mc.successCount) / float64(total) * percentFactor
-	}
-
-	reasonsCopy := make(map[string]uint64, len(mc.failureReasons))
-	for k, v := range mc.failureReasons {
-		reasonsCopy[k] = v
-	}
-
-	oldEpochMetrics := AttestationMetrics{
-		Epoch:          mc.currentEpoch,
-		Successes:      mc.successCount,
-		Failures:       mc.failureCount,
-		SuccessRate:    successRate,
-		TotalProcessed: total,
-		FailureReasons: reasonsCopy,
-	}
-
-	// Reset for the new epoch
-	mc.reset()
-	mc.currentEpoch = newEpoch
-
-	return oldEpochMetrics
 }
 
 // reset resets all counters and maps. Caller must hold write lock.
