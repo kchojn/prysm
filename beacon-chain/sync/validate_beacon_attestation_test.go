@@ -52,6 +52,7 @@ func TestService_validateCommitteeIndexBeaconAttestation(t *testing.T) {
 		blkRootToPendingAtts:             make(map[[32]byte][]ethpb.SignedAggregateAttAndProof),
 		seenUnAggregatedAttestationCache: lruwrpr.New(10),
 		signatureChan:                    make(chan *signatureVerifier, verifierLimit),
+		attestationStats:                 newAttestationStats(),
 	}
 	s.initCaches()
 	go s.verifierRoutine()

@@ -1,17 +1,26 @@
 package sync
 
 import (
-	"fmt"
 	"sync"
 	"time"
 
 	"github.com/prysmaticlabs/prysm/v5/consensus-types/primitives"
-	"github.com/sirupsen/logrus"
 )
 
 const (
 	percentFactor = 100
 )
+
+// EpochSummary represents a summary of attestation stats for a single epoch.
+type EpochSummary struct {
+	Epoch          primitives.Epoch
+	Successes      uint64
+	Failures       uint64
+	SuccessRate    float64
+	TotalProcessed uint64
+	FailureReasons map[string]uint64
+	ResetOccurred  bool
+}
 
 // StatsCollector defines the interface for collecting attestation statistics.
 type StatsCollector interface {
@@ -98,39 +107,46 @@ func (as *attestationStats) getStats() (uint64, uint64, map[string]uint64) {
 	return as.successCount, as.failureCount, failureCopy
 }
 
-// outputEpochSummary outputs the statistics for the current epoch and resets counters if needed.
-// This method logs the success rate and failure breakdown for the current epoch.
-// If the current epoch is greater than the last recorded epoch, all statistics are reset.
-// Parameters:
-//   - currentEpoch: The current epoch number for which to output statistics
-func (as *attestationStats) outputEpochSummary(currentEpoch primitives.Epoch) {
+// outputEpochSummary computes and returns the statistics for the given epoch.
+// If currentEpoch > as.lastEpoch, the internal counters are reset.
+func (as *attestationStats) outputEpochSummary(currentEpoch primitives.Epoch) EpochSummary {
 	as.mu.Lock()
 	defer as.mu.Unlock()
 
-	successRate := float64(0)
 	total := as.successCount + as.failureCount
-
+	successRate := float64(0)
 	if total > 0 {
 		successRate = float64(as.successCount) / float64(total) * percentFactor
 	}
 
-	log.WithFields(logrus.Fields{
-		"epoch":           currentEpoch,
-		"context":         "attestation_verification",
-		"successes":       as.successCount,
-		"failures":        as.failureCount,
-		"success_rate":    fmt.Sprintf("%.2f%%", successRate),
-		"total_processed": total,
-	}).Info("Attestation verification epoch summary")
+	reasonsCopy := make(map[string]uint64, len(as.failureReasons))
+	for k, v := range as.failureReasons {
+		reasonsCopy[k] = v
+	}
 
-	if as.failureCount > 0 {
-		log.WithField("failure_reasons", as.failureReasons).Info("Attestation verification failure breakdown")
+	summary := EpochSummary{
+		Epoch:          currentEpoch,
+		Successes:      as.successCount,
+		Failures:       as.failureCount,
+		SuccessRate:    successRate,
+		TotalProcessed: total,
+		FailureReasons: reasonsCopy,
+		ResetOccurred:  false,
 	}
 
 	if currentEpoch > as.lastEpoch {
-		as.successCount = 0
-		as.failureCount = 0
-		as.failureReasons = make(map[string]uint64)
+		as.reset()
 		as.lastEpoch = currentEpoch
+		summary.ResetOccurred = true
 	}
+
+	return summary
+}
+
+// reset resets the internal counters and failure reasons map.
+// Caller must hold the write lock.
+func (as *attestationStats) reset() {
+	as.successCount = 0
+	as.failureCount = 0
+	as.failureReasons = make(map[string]uint64)
 }

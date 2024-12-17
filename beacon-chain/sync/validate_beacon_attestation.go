@@ -227,7 +227,8 @@ func (s *Service) validateCommitteeIndexBeaconAttestation(ctx context.Context, p
 	s.attestationStats.recordSuccess()
 
 	currentEpoch := slots.ToEpoch(s.cfg.clock.CurrentSlot())
-	s.attestationStats.outputEpochSummary(currentEpoch)
+
+	log.WithField("attestation epoch summary", s.attestationStats.outputEpochSummary(currentEpoch)).Debug("Attestation stats for epoch")
 
 	return pubsub.ValidationAccept, nil
 }
