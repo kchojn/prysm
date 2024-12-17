@@ -1,50 +1,54 @@
 package blockchain
 
 import (
-	"github.com/prysmaticlabs/prysm/v5/consensus-types/primitives"
-	"github.com/prysmaticlabs/prysm/v5/testing/require"
 	"sync"
 	"testing"
+
+	"github.com/prysmaticlabs/prysm/v5/consensus-types/primitives"
+	"github.com/prysmaticlabs/prysm/v5/testing/require"
 )
 
-func TestAttestationStats_RecordSuccess(t *testing.T) {
+func TestMetricsCollector_RecordSuccess(t *testing.T) {
 	t.Parallel()
 
-	stats := newAttestationStats()
+	collector := NewMetricsCollector()
 
-	stats.recordSuccess()
-	successes, _, _ := stats.getStats()
-	require.Equal(t, uint64(1), successes)
+	collector.RecordSuccess()
+	metrics := collector.GetCurrentMetrics()
+
+	require.Equal(t, uint64(1), metrics.Successes)
 
 	for i := 0; i < 5; i++ {
-		stats.recordSuccess()
+		collector.RecordSuccess()
 	}
 
-	successes, _, _ = stats.getStats()
-	require.Equal(t, uint64(6), successes)
+	metrics = collector.GetCurrentMetrics()
+
+	require.Equal(t, uint64(6), metrics.Successes)
 }
 
-func TestAttestationStats_RecordFailure(t *testing.T) {
+func TestMetricsCollector_RecordFailure(t *testing.T) {
 	t.Parallel()
 
-	stats := newAttestationStats()
+	collector := NewMetricsCollector()
 
-	stats.recordFailure("decode_error")
-	stats.recordFailure("invalid_signature")
-	stats.recordFailure("invalid_signature")
-	stats.recordFailure("invalid_committee_index")
+	collector.RecordFailure("decode_error")
+	collector.RecordFailure("invalid_signature")
+	collector.RecordFailure("invalid_signature")
+	collector.RecordFailure("invalid_committee_index")
 
-	_, failures, reasons := stats.getStats()
-	require.Equal(t, uint64(4), failures)
-	require.Equal(t, uint64(1), reasons["decode_error"])
-	require.Equal(t, uint64(2), reasons["invalid_signature"])
-	require.Equal(t, uint64(1), reasons["invalid_committee_index"])
+	metrics := collector.GetCurrentMetrics()
+
+	require.Equal(t, uint64(4), metrics.Failures)
+	require.Equal(t, uint64(1), metrics.FailureReasons["decode_error"])
+	require.Equal(t, uint64(2), metrics.FailureReasons["invalid_signature"])
+	require.Equal(t, uint64(1), metrics.FailureReasons["invalid_committee_index"])
 }
 
-func TestAttestationStats_Concurrent(t *testing.T) {
+func TestMetricsCollector_ConcurrentAccess(t *testing.T) {
 	t.Parallel()
 
-	stats := newAttestationStats()
+	collector := NewMetricsCollector()
 
 	const (
 		workers    = 100
@@ -63,95 +67,81 @@ func TestAttestationStats_Concurrent(t *testing.T) {
 	}
 
 	for i := 0; i < workers; i++ {
-		go func(workerID int) {
+		go func() {
 			defer wg.Done()
 			for j := 0; j < iterations; j++ {
 				if j%2 == 0 {
-					stats.recordSuccess()
+					collector.RecordSuccess()
 				} else {
 					reason := failureReasons[j%len(failureReasons)]
-					stats.recordFailure(reason)
+					collector.RecordFailure(reason)
 				}
 			}
-		}(i)
+		}()
 	}
 	wg.Wait()
 
-	successes, failures, reasons := stats.getStats()
+	metrics := collector.GetCurrentMetrics()
 	expectedTotal := uint64(workers * iterations)
-	actualTotal := successes + failures
+	actualTotal := metrics.Successes + metrics.Failures
 
 	require.Equal(t, expectedTotal, actualTotal)
 
 	for _, reason := range failureReasons {
-		count := reasons[reason]
+		count := metrics.FailureReasons[reason]
 		require.NotEqual(t, uint64(0), count, "Failure reason "+reason+" did not occur")
 	}
 
 	var totalReasonCounts uint64
-	for _, count := range reasons {
+
+	for _, count := range metrics.FailureReasons {
 		totalReasonCounts += count
 	}
-	require.Equal(t, failures, totalReasonCounts)
 
-	require.NotEqual(t, uint64(0), successes)
-	require.NotEqual(t, uint64(0), failures)
-	require.NotEqual(t, expectedTotal, failures)
-	require.NotEqual(t, expectedTotal, successes)
+	require.Equal(t, metrics.Failures, totalReasonCounts)
+	require.NotEqual(t, uint64(0), metrics.Successes)
+	require.NotEqual(t, uint64(0), metrics.Failures)
+	require.NotEqual(t, expectedTotal, metrics.Failures)
+	require.NotEqual(t, expectedTotal, metrics.Successes)
 }
 
-func TestAttestationStats_OutputEpochSummary(t *testing.T) {
+func TestMetricsCollector_AdvanceEpoch(t *testing.T) {
 	t.Parallel()
 
-	stats := newAttestationStats()
+	collector := NewMetricsCollector()
 
-	stats.recordSuccess()
-	stats.recordSuccess()
-	stats.recordFailure("decode_error")
-	stats.recordFailure("invalid_signature")
+	collector.RecordSuccess()
+	collector.RecordSuccess()
+	collector.RecordFailure("decode_error")
+	collector.RecordFailure("invalid_signature")
 
-	stats.outputEpochSummary(primitives.Epoch(1))
+	oldMetrics := collector.AdvanceEpoch(primitives.Epoch(1))
 
-	successes, failures, reasons := stats.getStats()
-	require.Equal(t, uint64(0), successes)
-	require.Equal(t, uint64(0), failures)
-	require.Equal(t, 0, len(reasons))
-	require.Equal(t, primitives.Epoch(1), stats.lastEpoch)
+	require.Equal(t, primitives.Epoch(0), oldMetrics.Epoch)
+	require.Equal(t, uint64(2), oldMetrics.Successes)
+	require.Equal(t, uint64(2), oldMetrics.Failures)
+	require.Equal(t, (2.0/4.0)*100, oldMetrics.SuccessRate)
+	require.Equal(t, uint64(4), oldMetrics.TotalProcessed)
+	require.NotNil(t, oldMetrics.FailureReasons["decode_error"])
+	require.NotNil(t, oldMetrics.FailureReasons["invalid_signature"])
 
-	stats.recordSuccess()
-	stats.recordFailure("decode_error")
-	stats.outputEpochSummary(primitives.Epoch(1))
+	metrics := collector.GetCurrentMetrics()
+	require.Equal(t, uint64(0), metrics.Successes)
+	require.Equal(t, uint64(0), metrics.Failures)
 
-	successes, failures, reasons = stats.getStats()
-	require.Equal(t, uint64(1), successes)
-	require.Equal(t, uint64(1), failures)
-	require.Equal(t, uint64(1), reasons["decode_error"])
+	collector.RecordSuccess()
+	collector.RecordFailure("decode_error")
 
-	stats.outputEpochSummary(primitives.Epoch(2))
-	successes, failures, reasons = stats.getStats()
-	require.Equal(t, uint64(0), successes)
-	require.Equal(t, uint64(0), failures)
-	require.Equal(t, 0, len(reasons))
-	require.Equal(t, primitives.Epoch(2), stats.lastEpoch)
-}
+	oldMetrics = collector.AdvanceEpoch(primitives.Epoch(2))
 
-func TestAttestationStats_GetStats(t *testing.T) {
-	t.Parallel()
+	require.Equal(t, primitives.Epoch(1), oldMetrics.Epoch)
+	require.Equal(t, uint64(1), oldMetrics.Successes)
+	require.Equal(t, uint64(1), oldMetrics.Failures)
+	require.Equal(t, uint64(2), oldMetrics.TotalProcessed)
+	require.Equal(t, uint64(1), oldMetrics.FailureReasons["decode_error"])
 
-	stats := newAttestationStats()
+	metrics = collector.GetCurrentMetrics()
 
-	stats.recordSuccess()
-	stats.recordFailure("decode_error")
-	stats.recordFailure("decode_error")
-	stats.recordFailure("invalid_signature")
-
-	successes, failures, reasons := stats.getStats()
-	require.Equal(t, uint64(1), successes)
-	require.Equal(t, uint64(3), failures)
-	require.Equal(t, uint64(2), reasons["decode_error"])
-	require.Equal(t, uint64(1), reasons["invalid_signature"])
-
-	reasons["decode_error"] = 999
-	_, _, newReasons := stats.getStats()
-	require.Equal(t, uint64(2), newReasons["decode_error"])
+	require.Equal(t, uint64(0), metrics.Successes)
+	require.Equal(t, uint64(0), metrics.Failures)
 }

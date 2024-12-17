@@ -41,11 +41,11 @@ func (s *Service) OnAttestation(ctx context.Context, a ethpb.Att, disparity time
 	defer span.End()
 
 	if err := helpers.ValidateNilAttestation(a); err != nil {
-		s.attestationStats.recordFailure("nil_attestation")
+		s.attestationStats.RecordFailure("nil_attestation")
 		return err
 	}
 	if err := helpers.ValidateSlotTargetEpoch(a.GetData()); err != nil {
-		s.attestationStats.recordFailure("invalid_slot_target_epoch")
+		s.attestationStats.RecordFailure("invalid_slot_target_epoch")
 		return err
 	}
 	tgt := a.GetData().Target.Copy()
@@ -58,7 +58,7 @@ func (s *Service) OnAttestation(ctx context.Context, a ethpb.Att, disparity time
 	// save it to the cache.
 	baseState, err := s.getAttPreState(ctx, tgt)
 	if err != nil {
-		s.attestationStats.recordFailure("invalid_pre_state")
+		s.attestationStats.RecordFailure("invalid_pre_state")
 		return err
 	}
 
@@ -66,13 +66,13 @@ func (s *Service) OnAttestation(ctx context.Context, a ethpb.Att, disparity time
 
 	// Verify attestation target is from current epoch or previous epoch.
 	if err := verifyAttTargetEpoch(ctx, genesisTime, uint64(time.Now().Add(disparity).Unix()), tgt); err != nil {
-		s.attestationStats.recordFailure("invalid_target_epoch")
+		s.attestationStats.RecordFailure("invalid_target_epoch")
 		return err
 	}
 
 	// Verify attestation beacon block is known and not from the future.
 	if err := s.verifyBeaconBlock(ctx, a.GetData()); err != nil {
-		s.attestationStats.recordFailure("invalid_beacon_block")
+		s.attestationStats.RecordFailure("invalid_beacon_block")
 		return errors.Wrap(err, "could not verify attestation beacon block")
 	}
 
@@ -81,23 +81,23 @@ func (s *Service) OnAttestation(ctx context.Context, a ethpb.Att, disparity time
 
 	// Verify attestations can only affect the fork choice of subsequent slots.
 	if err := slots.VerifyTime(genesisTime, a.GetData().Slot+1, disparity); err != nil {
-		s.attestationStats.recordFailure("invalid_time")
+		s.attestationStats.RecordFailure("invalid_time")
 		return err
 	}
 
 	// Use the target state to verify attesting indices are valid.
 	committees, err := helpers.AttestationCommittees(ctx, baseState, a)
 	if err != nil {
-		s.attestationStats.recordFailure("invalid_committees")
+		s.attestationStats.RecordFailure("invalid_committees")
 		return err
 	}
 	indexedAtt, err := attestation.ConvertToIndexed(ctx, a, committees...)
 	if err != nil {
-		s.attestationStats.recordFailure("conversion_failed")
+		s.attestationStats.RecordFailure("conversion_failed")
 		return err
 	}
 	if err := attestation.IsValidAttestationIndices(ctx, indexedAtt); err != nil {
-		s.attestationStats.recordFailure("invalid_indices")
+		s.attestationStats.RecordFailure("invalid_indices")
 		return err
 	}
 
@@ -108,7 +108,7 @@ func (s *Service) OnAttestation(ctx context.Context, a ethpb.Att, disparity time
 	// Update forkchoice store with the new attestation for updating weight.
 	s.cfg.ForkChoiceStore.ProcessAttestation(ctx, indexedAtt.GetAttestingIndices(), bytesutil.ToBytes32(a.GetData().BeaconBlockRoot), a.GetData().Target.Epoch)
 
-	s.attestationStats.recordSuccess()
+	s.attestationStats.RecordSuccess()
 
 	return nil
 }

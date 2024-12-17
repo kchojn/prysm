@@ -10,130 +10,138 @@ const (
 	percentFactor = 100
 )
 
-// EpochSummary represents a summary of attestation stats for a single epoch.
-type EpochSummary struct {
+// AttestationRecorder handles recording attestation verification outcomes.
+type AttestationRecorder interface {
+	// RecordSuccess records a successful attestation verification.
+	RecordSuccess()
+	// RecordFailure records a failed attestation verification with a reason.
+	RecordFailure(reason string)
+}
+
+// AttestationStatsReader provides read access to attestation metrics.
+type AttestationStatsReader interface {
+	// GetCurrentMetrics returns the current verification statistics for the current epoch, without resetting.
+	GetCurrentMetrics() AttestationMetrics
+}
+
+// AttestationMetricsCollector collects and provides attestation verification metrics.
+type AttestationMetricsCollector interface {
+	AttestationRecorder
+	AttestationStatsReader
+
+	// AdvanceEpoch finalizes metrics for the current epoch, resets counters, and sets the new current epoch.
+	// It returns the metrics of the epoch that just ended.
+	AdvanceEpoch(newEpoch primitives.Epoch) AttestationMetrics
+}
+
+// AttestationMetrics represents verification metrics for an epoch.
+type AttestationMetrics struct {
 	Epoch          primitives.Epoch
 	Successes      uint64
 	Failures       uint64
 	SuccessRate    float64
 	TotalProcessed uint64
 	FailureReasons map[string]uint64
-	ResetOccurred  bool
 }
 
-// StatsCollector defines the interface for collecting attestation statistics.
-type StatsCollector interface {
-	// recordSuccess records a successful attestation verification.
-	recordSuccess()
-	// recordFailure records a failed attestation verification with a reason.
-	recordFailure(reason string)
-	// getStats returns current statistics about attestation verifications.
-	getStats() (uint64, uint64, map[string]uint64)
-}
-
-// attestationStats handles attestation verification statistics collection.
-// It keeps track of successful and failed attestations, along with failure reasonsddoc
-// and provides thread-safe access to these statistics.
-type attestationStats struct {
-	mu             sync.RWMutex
+// metricsCollector is a concurrency-safe implementation of AttestationMetricsCollector.
+type metricsCollector struct {
+	mu             sync.Mutex
 	successCount   uint64
 	failureCount   uint64
 	failureReasons map[string]uint64
-	lastEpoch      primitives.Epoch
+	currentEpoch   primitives.Epoch
 }
 
-// New creates a new attestationStats instance.
-func newAttestationStats() *attestationStats {
-	return &attestationStats{
+// NewMetricsCollector creates a new metrics collector instance.
+func NewMetricsCollector() AttestationMetricsCollector {
+	return &metricsCollector{
 		failureReasons: make(map[string]uint64),
 	}
 }
 
-// recordSuccess increments the successful attestation counter and updates related metrics.
-// This method is thread-safe and can be called concurrently from multiple goroutines.
-func (as *attestationStats) recordSuccess() {
-	as.mu.Lock()
-	defer as.mu.Unlock()
+// RecordSuccess increments the successful attestation counter thread-safely.
+func (mc *metricsCollector) RecordSuccess() {
+	mc.mu.Lock()
+	defer mc.mu.Unlock()
 
-	as.successCount++
+	mc.successCount++
 }
 
-// recordFailure increments the failed attestation counter and records the failure reason.
-// This method is thread-safe and can be called concurrently from multiple goroutines.
-// If an empty reason is provided, it will be recorded as "unknown".
-// Parameters:
-//   - reason: The reason for the attestation verification failure
-func (as *attestationStats) recordFailure(reason string) {
-	as.mu.Lock()
-	defer as.mu.Unlock()
-
+// RecordFailure increments failure counter and records failure reason thread-safely.
+func (mc *metricsCollector) RecordFailure(reason string) {
 	if reason == "" {
 		reason = "unknown"
 	}
 
-	as.failureCount++
-	as.failureReasons[reason]++
+	mc.mu.Lock()
+	defer mc.mu.Unlock()
+
+	mc.failureCount++
+	mc.failureReasons[reason]++
 }
 
-// getStats returns the current attestation verification statistics.
-// The returned map is a copy of the internal failure reasons map, making it safe for concurrent access.
-// Returns:
-//   - successCount: Number of successful attestation verifications
-//   - failureCount: Number of failed attestation verifications
-//   - failureReasons: Map of failure reasons and their counts
-func (as *attestationStats) getStats() (uint64, uint64, map[string]uint64) {
-	as.mu.RLock()
-	defer as.mu.RUnlock()
+// GetCurrentMetrics returns the current statistics without resetting.
+func (mc *metricsCollector) GetCurrentMetrics() AttestationMetrics {
+	mc.mu.Lock()
+	defer mc.mu.Unlock()
 
-	failureCopy := make(map[string]uint64, len(as.failureReasons))
-
-	for k, v := range as.failureReasons {
-		failureCopy[k] = v
-	}
-
-	return as.successCount, as.failureCount, failureCopy
-}
-
-// outputEpochSummary computes and returns the statistics for the given epoch.
-// If currentEpoch > as.lastEpoch, the internal counters are reset.
-func (as *attestationStats) outputEpochSummary(currentEpoch primitives.Epoch) EpochSummary {
-	as.mu.Lock()
-	defer as.mu.Unlock()
-
-	total := as.successCount + as.failureCount
-	successRate := float64(0)
+	total := mc.successCount + mc.failureCount
+	successRate := 0.0
 	if total > 0 {
-		successRate = float64(as.successCount) / float64(total) * percentFactor
+		successRate = float64(mc.successCount) / float64(total) * percentFactor
 	}
 
-	reasonsCopy := make(map[string]uint64, len(as.failureReasons))
-	for k, v := range as.failureReasons {
+	reasonsCopy := make(map[string]uint64, len(mc.failureReasons))
+	for k, v := range mc.failureReasons {
 		reasonsCopy[k] = v
 	}
 
-	summary := EpochSummary{
-		Epoch:          currentEpoch,
-		Successes:      as.successCount,
-		Failures:       as.failureCount,
+	return AttestationMetrics{
+		Epoch:          mc.currentEpoch,
+		Successes:      mc.successCount,
+		Failures:       mc.failureCount,
 		SuccessRate:    successRate,
 		TotalProcessed: total,
 		FailureReasons: reasonsCopy,
-		ResetOccurred:  false,
 	}
-
-	if currentEpoch > as.lastEpoch {
-		as.reset()
-		as.lastEpoch = currentEpoch
-		summary.ResetOccurred = true
-	}
-
-	return summary
 }
 
-// reset resets the internal counters and failure reasons map.
-// Caller must hold the write lock.
-func (as *attestationStats) reset() {
-	as.successCount = 0
-	as.failureCount = 0
-	as.failureReasons = make(map[string]uint64)
+// AdvanceEpoch finalizes the current epoch's metrics, resets counters, and updates the current epoch.
+func (mc *metricsCollector) AdvanceEpoch(newEpoch primitives.Epoch) AttestationMetrics {
+	mc.mu.Lock()
+	defer mc.mu.Unlock()
+
+	total := mc.successCount + mc.failureCount
+	successRate := 0.0
+	if total > 0 {
+		successRate = float64(mc.successCount) / float64(total) * percentFactor
+	}
+
+	reasonsCopy := make(map[string]uint64, len(mc.failureReasons))
+	for k, v := range mc.failureReasons {
+		reasonsCopy[k] = v
+	}
+
+	oldEpochMetrics := AttestationMetrics{
+		Epoch:          mc.currentEpoch,
+		Successes:      mc.successCount,
+		Failures:       mc.failureCount,
+		SuccessRate:    successRate,
+		TotalProcessed: total,
+		FailureReasons: reasonsCopy,
+	}
+
+	// Reset for the new epoch
+	mc.reset()
+	mc.currentEpoch = newEpoch
+
+	return oldEpochMetrics
+}
+
+// reset resets all counters and maps. Caller must hold write lock.
+func (mc *metricsCollector) reset() {
+	mc.successCount = 0
+	mc.failureCount = 0
+	mc.failureReasons = make(map[string]uint64)
 }

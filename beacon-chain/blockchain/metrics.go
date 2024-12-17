@@ -238,13 +238,6 @@ var (
 		},
 		[]string{"reason"},
 	)
-	attestationVerificationLatencySeconds = promauto.NewHistogram(
-		prometheus.HistogramOpts{
-			Name:    "attestation_verification_latency_seconds",
-			Help:    "Latency of attestation verification in seconds",
-			Buckets: []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10},
-		},
-	)
 )
 
 // reportSlotMetrics reports slot related metrics.
@@ -259,7 +252,7 @@ func reportSlotMetrics(stateSlot, headSlot, clockSlot primitives.Slot, finalized
 }
 
 // reportEpochMetrics reports epoch related metrics.
-func reportEpochMetrics(ctx context.Context, postState, headState state.BeaconState, stats *attestationStats) error {
+func reportEpochMetrics(ctx context.Context, postState, headState state.BeaconState, stats AttestationMetricsCollector) error {
 	currentEpoch := primitives.Epoch(postState.Slot() / params.BeaconConfig().SlotsPerEpoch)
 
 	// Validator instances
@@ -389,10 +382,8 @@ func reportEpochMetrics(ctx context.Context, postState, headState state.BeaconSt
 	postState.RecordStateMetrics()
 
 	if stats != nil {
-		summary := stats.outputEpochSummary(currentEpoch)
-		if summary.ResetOccurred {
-			reportAttestationStats(summary)
-		}
+		summary := stats.AdvanceEpoch(currentEpoch)
+		reportAttestationStats(summary)
 	}
 
 	return nil
@@ -404,7 +395,7 @@ func reportAttestationInclusion(blk interfaces.ReadOnlyBeaconBlock) {
 	}
 }
 
-func reportAttestationStats(summary EpochSummary) {
+func reportAttestationStats(summary AttestationMetrics) {
 	log.WithFields(logrus.Fields{
 		"epoch":          summary.Epoch,
 		"successes":      summary.Successes,
