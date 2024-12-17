@@ -280,6 +280,11 @@ type BeaconChainConfig struct {
 	AttestationSubnetPrefixBits     uint64          `yaml:"ATTESTATION_SUBNET_PREFIX_BITS" spec:"true"`     // AttestationSubnetPrefixBits is defined as (ceillog2(ATTESTATION_SUBNET_COUNT) + ATTESTATION_SUBNET_EXTRA_BITS).
 	SubnetsPerNode                  uint64          `yaml:"SUBNETS_PER_NODE" spec:"true"`                   // SubnetsPerNode is the number of long-lived subnets a beacon node should be subscribed to.
 	NodeIdBits                      uint64          `yaml:"NODE_ID_BITS" spec:"true"`                       // NodeIdBits defines the bit length of a node id.
+
+	// Blobs Values
+	MaxBlobsPerBlock           int `yaml:"MAX_BLOBS_PER_BLOCK" spec:"true"`            // MaxBlobsPerBlock defines the max blobs could exist in a block.
+	MaxBlobsPerBlockElectra    int `yaml:"MAX_BLOBS_PER_BLOCK_ELECTRA" spec:"true"`    // MaxBlobsPerBlockElectra defines the max blobs could exist in a block post Electra hard fork.
+	TargetBlobsPerBlockElectra int `yaml:"TARGET_BLOBS_PER_BLOCK_ELECTRA" spec:"true"` // TargetBlobsPerBlockElectra defines the target number of blobs per block post Electra hard fork.
 }
 
 // InitializeForkSchedule initializes the schedules forks baked into the config.

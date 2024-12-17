@@ -9,6 +9,7 @@ import (
 	"github.com/prysmaticlabs/prysm/v5/beacon-chain/core/time"
 	"github.com/prysmaticlabs/prysm/v5/beacon-chain/state"
 	field_params "github.com/prysmaticlabs/prysm/v5/config/fieldparams"
+	"github.com/prysmaticlabs/prysm/v5/config/params"
 	consensus_types "github.com/prysmaticlabs/prysm/v5/consensus-types"
 	"github.com/prysmaticlabs/prysm/v5/consensus-types/blocks"
 	"github.com/prysmaticlabs/prysm/v5/consensus-types/interfaces"
@@ -233,7 +234,10 @@ func verifyBlobCommitmentCount(body interfaces.ReadOnlyBeaconBlockBody) error {
 	if err != nil {
 		return err
 	}
-	if len(kzgs) > field_params.MaxBlobsPerBlock {
+	if body.Version() == version.Deneb && len(kzgs) > field_params.MaxBlobsPerBlock {
+		return fmt.Errorf("too many kzg commitments in block: %d", len(kzgs))
+	}
+	if len(kzgs) > params.BeaconConfig().MaxBlobsPerBlockElectra {
 		return fmt.Errorf("too many kzg commitments in block: %d", len(kzgs))
 	}
 	return nil
